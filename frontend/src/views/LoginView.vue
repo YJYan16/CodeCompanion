@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="login-container">
     <div class="login-card">
       <div class="login-header">
@@ -9,13 +9,11 @@
 
       <el-form :model="form" :rules="rules" ref="formRef" class="login-form">
         <el-form-item prop="username">
-          <el-input v-model="form.username" placeholder="用户名" size="large" prefix-icon="User">
-          </el-input>
+          <el-input v-model="form.username" placeholder="学号" size="large" />
         </el-form-item>
 
         <el-form-item prop="password">
-          <el-input v-model="form.password" type="password" placeholder="密码" size="large" prefix-icon="Lock" show-password @keyup.enter="handleLogin">
-          </el-input>
+          <el-input v-model="form.password" type="password" placeholder="密码" size="large" show-password @keyup.enter="handleLogin" />
         </el-form-item>
 
         <el-form-item>
@@ -26,8 +24,9 @@
       </el-form>
 
       <div class="login-hint">
-        <el-tag size="small" type="info">学生: student / 123456</el-tag>
-        <el-tag size="small" type="warning">教师: admin / admin123</el-tag>
+        <el-tag size="small" type="info">学生: 2024001/123456</el-tag>
+        <el-tag size="small" type="info">学生: 2024002/123456</el-tag>
+        <el-tag size="small" type="warning">教师: admin/admin123</el-tag>
       </div>
     </div>
   </div>
@@ -112,6 +111,10 @@ const handleLogin = async () => {
   font-size: 14px;
 }
 
+.login-form {
+  margin-top: 20px;
+}
+
 .login-btn {
   width: 100%;
   height: 48px;
@@ -126,6 +129,7 @@ const handleLogin = async () => {
   margin-top: 20px;
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>

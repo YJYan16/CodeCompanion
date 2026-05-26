@@ -1,12 +1,29 @@
 <template>
   <div class="admin-page">
     <el-card>
-      <template #header>📤 批量批改作业</template>
+      <template #header>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span>📤 批量批改作业</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="color:#666;font-size:14px">当前班级：</span>
+            <el-select v-model="currentClass" @change="switchClass" size="small" style="width:150px">
+              <el-option v-for="c in adminStore.classes" :key="c" :label="c" :value="c" />
+            </el-select>
+          </div>
+        </div>
+      </template>
 
       <el-form label-width="100px">
         <el-form-item label="选择题目">
-          <el-select v-model="selectedQuestion" placeholder="请选择题目">
-            <el-option v-for="q in questions" :key="q.id" :label="q.title" :value="q.id" />
+          <el-select v-model="selectedQuestion" placeholder="请选择题目" filterable style="width:250px">
+            <el-option v-for="q in filteredQuestions" :key="q.id" :label="q.title" :value="q.id" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="语言">
+          <el-select v-model="batchLanguage" placeholder="选择语言" style="width:200px" @change="onLanguageChange">
+            <el-option label="Python" value="python" />
+            <el-option label="Java" value="java" />
           </el-select>
         </el-form-item>
 
@@ -70,16 +87,8 @@ import { Upload } from '@element-plus/icons-vue'
 import { gradeCode } from '@/api/index.js'
 import { adminStore } from '@/store/index.js'
 
-const questions = ref([
-  { id: 'q1', title: '找最大值 (Python)', language: 'python',
-    description: '编写函数 find_max(numbers)...',
-    rubrics: '1. 逻辑正确(60分)\n2. 代码规范(20分)\n3. 边界处理(20分)' },
-  { id: 'j1', title: '找最大值 (Java)', language: 'java',
-    description: '编写 findMax 方法...',
-    rubrics: '1. 逻辑正确(60分)\n2. 代码规范(20分)\n3. 边界处理(20分)' }
-])
-
 const selectedQuestion = ref('q1')
+const batchLanguage = ref('python')
 const submitMode = ref('single')
 const studentName = ref('测试学生')
 const singleCode = ref('')
@@ -88,6 +97,11 @@ const progress = ref(0)
 const singleReport = ref(null)
 const batchResults = ref([])
 const zipFile = ref(null)
+const currentClass = ref(adminStore.currentClass)
+
+const filteredQuestions = computed(() => {
+  return adminStore.questions.filter(q => q.languages.includes(batchLanguage.value))
+})
 
 const batchStats = computed(() => {
   const scores = batchResults.value.map(r => r.overall_score).filter(s => s !== undefined)
@@ -99,19 +113,41 @@ const batchStats = computed(() => {
   }
 })
 
-const getQuestion = () => questions.value.find(q => q.id === selectedQuestion.value)
+const getQuestion = () => {
+  const q = adminStore.questions.find(q => q.id === selectedQuestion.value)
+  if (!q) return null
+  const langConfig = q[batchLanguage.value] || q.python || {}
+  return { ...q, ...langConfig }
+}
+
+const onLanguageChange = () => {
+  const first = filteredQuestions.value[0]
+  if (first && !filteredQuestions.value.find(q => q.id === selectedQuestion.value)) {
+    selectedQuestion.value = first.id
+  }
+}
+
+const switchClass = (name) => {
+  currentClass.value = name
+  adminStore.switchClass(name)
+}
 
 const submitSingle = async () => {
   grading.value = true
   singleReport.value = null
   try {
     const q = getQuestion()
-    const response = await gradeCode(singleCode.value, q.description, q.rubrics, q.language)
+    if (!q) return alert('请先选择题库中的题目')
+    const response = await gradeCode(singleCode.value, q.description, q.rubrics, batchLanguage.value)
     singleReport.value = response.data
-    
+
     adminStore.addReport({
       student_name: studentName.value,
       code: singleCode.value,
+      language: batchLanguage.value,
+      class: adminStore.currentClass,
+      source: 'batch',
+      question: q.title,
       ...response.data
     })
   } catch (e) {
@@ -137,18 +173,23 @@ const submitBatch = async () => {
     const files = Object.keys(zip.files).filter(f => f.endsWith('.py') || f.endsWith('.java'))
     const total = files.length
     const q = getQuestion()
+    if (!q) return alert('请先选择题库中的题目')
 
     for (let i = 0; i < files.length; i++) {
       const filename = files[i]
       const content = await zip.files[filename].async('string')
       const name = filename.replace(/\.(py|java)$/, '')
-      const lang = filename.endsWith('.java') ? 'java' : 'python'
+      const lang = filename.endsWith('.java') ? 'java' : batchLanguage.value
 
       try {
         const response = await gradeCode(content, q.description, q.rubrics, lang)
         const record = {
           student_name: name,
           code: content,
+          language: lang,
+          class: adminStore.currentClass,
+          source: 'batch',
+          question: q.title,
           ...response.data
         }
         batchResults.value.push(record)

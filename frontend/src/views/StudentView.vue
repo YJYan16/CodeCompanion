@@ -2,10 +2,20 @@
   <div class="student-container">
     <el-header>
       <div class="header-content">
-        <h1>🤖 码途智伴</h1>
-        <el-button @click="$router.push('/profile')" class="profile-btn" size="small">
-          📊 档案
-        </el-button>
+        <div class="header-left">
+          <h1>🤖 码途智伴</h1>
+        </div>
+        <div class="header-right">
+          <el-tooltip effect="dark" placement="bottom">
+            <template #content>
+              <div>学号: {{ authStore.userId }}</div>
+              <div>班级: {{ authStore.className }}</div>
+            </template>
+            <span class="header-name">{{ authStore.name }}</span>
+          </el-tooltip>
+          <el-button @click="$router.push('/profile')" class="profile-btn" size="small">📊 档案</el-button>
+          <el-button @click="handleLogout" type="danger" link size="small">退出</el-button>
+        </div>
       </div>
     </el-header>
     <el-main>
@@ -47,6 +57,15 @@
               <el-skeleton :rows="8" animated />
             </div>
             <GradeReport v-if="report" :report="report" :stream-content="streamContent" @ask="openTutor" />
+
+            <!-- ★ 提交至教师按钮 -->
+            <div v-if="report && !report.streaming" class="submit-to-teacher">
+              <el-button type="success" @click="submitToTeacher" :loading="submitting" class="teacher-btn">
+                📮 提交至教师
+              </el-button>
+              <span class="submit-hint">将最终版本提交给教师查看</span>
+            </div>
+
             <div v-if="!report && !loading" class="placeholder-text">等待提交代码...</div>
 
             <WeakKnowledgeCard :knowledge-points="weakKnowledge" />
@@ -77,6 +96,8 @@ import GradeReport from '@/components/GradeReport.vue'
 import TutorChat from '@/components/TutorChat.vue'
 import WeakKnowledgeCard from '@/components/WeakKnowledgeCard.vue'
 import LearningPath from '@/components/LearningPath.vue'
+import { authStore } from '@/store/auth.js'
+import { adminStore } from '@/store/index.js'
 
 const code = ref('')
 const language = ref('python')
@@ -89,6 +110,57 @@ const streamContent = ref('')
 const weakKnowledge = ref([])
 const practiceList = ref([])
 const editorReady = ref(false)
+const learningPath = ref([])
+const submitting = ref(false)
+const submittedToTeacher = ref(false)
+
+const submitToTeacher = () => {
+  console.log('📮 submitToTeacher 被调用')
+  
+  if (!report.value || report.value.streaming) {
+    alert('请等待批改完成后再提交')
+    return
+  }
+  
+  try {
+    const record = {
+      userId: authStore.userId,
+      student_name: authStore.name,
+      code: code.value,
+      language: language.value,
+      class: authStore.className,
+      source: 'student',
+      question: questionBank[selectedQuestion.value]?.title || '',
+      overall_score: report.value.overall_score || 0,
+      summary: report.value.summary || '',
+      deductions: report.value.deductions || [],
+      submitted_at: new Date().toLocaleString()
+    }
+    
+    // ★ 直接写入 admin_classes
+    const classesData = JSON.parse(localStorage.getItem('admin_classes') || '{}')
+    if (!classesData.allReports) classesData.allReports = {}
+    if (!classesData.allReports[record.class]) classesData.allReports[record.class] = []
+    
+    // 去重
+    const exists = classesData.allReports[record.class].findIndex(x =>
+      x.userId === record.userId && x.submitted_at === record.submitted_at
+    )
+    if (exists >= 0) {
+      classesData.allReports[record.class][exists] = record
+    } else {
+      classesData.allReports[record.class].push(record)
+    }
+    
+    localStorage.setItem('admin_classes', JSON.stringify(classesData))
+    console.log('📮 已提交，当前班级数据量:', classesData.allReports[record.class].length)
+    
+    alert('✅ 已成功提交至教师！')
+  } catch (e) {
+    console.error('❌ 提交失败:', e)
+    alert('❌ 提交失败: ' + e.message)
+  }
+}
 
 const questionBank = {
   q1: {
@@ -189,6 +261,7 @@ const updateEditor = () => {
   report.value = null
   reportJson.value = '{}'
   weakKnowledge.value = []
+  learningPath.value = []
   editorReady.value = false
   nextTick(() => { editorReady.value = true })
 }
@@ -196,6 +269,30 @@ const updateEditor = () => {
 onMounted(() => updateEditor())
 watch(selectedQuestion, () => updateEditor())
 watch(language, () => updateEditor())
+
+const handleLogout = () => {
+  authStore.logout()
+  window.location.href = '/login'
+}
+
+const saveToTeacherStore = (evaluationData) => {
+  try {
+    const record = {
+      userId: authStore.userId,
+      student_name: authStore.name,
+      code: code.value,
+      language: language.value,
+      class: authStore.className,
+      source: 'student',
+      question: questionBank[selectedQuestion.value]?.title || '',
+      ...evaluationData,
+      submitted_at: new Date().toLocaleString()
+    }
+    const saved = JSON.parse(localStorage.getItem('admin_reports') || '[]')
+    saved.push(record)
+    localStorage.setItem('admin_reports', JSON.stringify(saved))
+  } catch (e) {}
+}
 
 const submitGrade = async () => {
   const codeStr = String(code.value || '')
@@ -234,6 +331,7 @@ const submitGrade = async () => {
                 report.value = { ...msg.data, streaming: false }
                 reportJson.value = JSON.stringify(msg.data)
                 generateKnowledgeAndPractices(msg.data)
+                saveToTeacherStore(msg.data)
               } else if (msg.type === 'error') {
                 report.value = { overall_score: '?', summary: '批改出错', deductions: [], streaming: false }
               }
@@ -249,8 +347,6 @@ const submitGrade = async () => {
     loading.value = false
   }
 }
-
-const learningPath = ref([])
 
 const generateKnowledgeAndPractices = (evaluationData) => {
   const deductions = evaluationData.deductions || []
@@ -268,7 +364,6 @@ const generateKnowledgeAndPractices = (evaluationData) => {
     template: code.value
   }]
   
-  // 生成学习路径
   const weakPoints = deductions.map(d => d.type)
   if (weakPoints.length > 0) {
     fetch('/api/learning-path', {
@@ -292,13 +387,11 @@ const startPractice = (practice) => {
 }
 
 const handleStartStep = (step) => {
-  // 将学习步骤的练习模板填入代码编辑器
   code.value = `# 学习任务：${step.name}
 # ${step.desc}
 # 推荐资源：${step.resource}
 
 def practice():
-    # 在这里练习
     pass`
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
@@ -326,16 +419,33 @@ def practice():
   width: 100%;
 }
 
-.header-content h1 {
+.header-left h1 {
   color: #fff;
   font-size: 20px;
   margin: 0;
   font-weight: 600;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-name {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
 .profile-btn {
   color: #fff !important;
-  border-color: rgba(255,255,255,0.5) !important;
+  background: rgba(255,255,255,0.2) !important;
+  border: 1px solid rgba(255,255,255,0.5) !important;
+  font-weight: 600;
+}
+.profile-btn:hover {
+  background: rgba(255,255,255,0.35) !important;
 }
 
 .el-main {
@@ -358,6 +468,7 @@ def practice():
   width: 100%;
   height: 44px;
   font-size: 16px;
+  font-weight: 600;
 }
 
 .placeholder-text {
@@ -390,6 +501,57 @@ def practice():
   align-items: center;
   justify-content: space-between;
 }
+
+@media screen and (max-width: 768px) {
+  .el-header {
+    height: 48px;
+    padding: 0 12px;
+  }
+  .header-left h1 {
+    font-size: 16px;
+  }
+  .el-main {
+    padding: 10px;
+    overflow-y: visible;
+  }
+  .left-col, .right-col {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: none !important;
+    padding: 0 !important;
+  }
+  .submit-form :deep(.el-form-item__label) {
+    width: 50px !important;
+    font-size: 13px;
+  }
+  .codemirror-container {
+    height: 250px !important;
+  }
+  .placeholder-text {
+    margin-top: 40px;
+  }
+  .practice-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+.submit-to-teacher {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f0f9eb;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.teacher-btn {
+  font-weight: 600;
+}
+.submit-hint {
+  color: #67c23a;
+  font-size: 13px;
+}
 .left-col, .right-col {
   height: calc(100vh - 96px);
   overflow-y: auto;
@@ -411,46 +573,15 @@ def practice():
 .right-col::-webkit-scrollbar-track {
   background: transparent;
 }
-
-/* ========== 移动端适配 ========== */
-@media screen and (max-width: 768px) {
-  .el-header {
-    height: 48px;
-    padding: 0 12px;
-  }
-  .header-content h1 {
-    font-size: 16px;
-  }
-  
-  .el-main {
-    padding: 10px;
-    overflow-y: visible;
-  }
-  
-  .left-col, .right-col {
-    width: 100% !important;
-    max-width: 100% !important;
-    flex: none !important;
-    padding: 0 !important;
-  }
-  
-  .submit-form :deep(.el-form-item__label) {
-    width: 50px !important;
-    font-size: 13px;
-  }
-  
-  .codemirror-container {
-    height: 250px !important;
-  }
-  
-  .placeholder-text {
-    margin-top: 40px;
-  }
-  
-  .practice-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
+.header-name {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 1px dashed rgba(255,255,255,0.5);
+  padding-bottom: 2px;
+}
+.header-name:hover {
+  color: #ffd700;
 }
 </style>

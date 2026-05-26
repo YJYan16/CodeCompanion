@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { authStore } from '@/store/auth.js'
+import { Document } from '@element-plus/icons-vue'
 
 const routes = [
   {
@@ -31,7 +32,9 @@ const routes = [
       { path: 'dashboard', name: 'AdminDashboard', component: () => import('../views/admin/AdminDashboard.vue') },
       { path: 'plagiarism', name: 'AdminPlagiarism', component: () => import('../views/admin/AdminPlagiarism.vue') },
       { path: 'knowledge', name: 'AdminKnowledge', component: () => import('../views/admin/AdminKnowledge.vue') },
-      { path: 'sandbox', name: 'AdminSandbox', component: () => import('../views/admin/AdminSandbox.vue') }
+      { path: 'sandbox', name: 'AdminSandbox', component: () => import('../views/admin/AdminSandbox.vue') },
+      { path: 'lesson-plan', name: 'AdminLessonPlan', component: () => import('../views/admin/AdminLessonPlan.vue') },
+      { path: 'students', name: 'AdminStudents', component: () => import('../views/admin/AdminStudents.vue') }
     ]
   }
 ]
@@ -41,7 +44,6 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫
 router.beforeEach((to, from, next) => {
   const isLoggedIn = authStore.checkLogin()
 
@@ -54,13 +56,20 @@ router.beforeEach((to, from, next) => {
     return
   }
 
-  if (to.meta.requiresAuth && !isLoggedIn) {
-    next('/login')
+  // ★ 教师端路由不需要 role 匹配，只要登录就行
+  if (to.path.startsWith('/admin')) {
+    if (!isLoggedIn) {
+      next('/login')
+    } else if (authStore.role !== 'admin') {
+      next('/')
+    } else {
+      next()
+    }
     return
   }
 
-  if (to.meta.role && isLoggedIn && authStore.role !== to.meta.role) {
-    next(authStore.role === 'admin' ? '/admin' : '/')
+  if (to.meta.requiresAuth && !isLoggedIn) {
+    next('/login')
     return
   }
 

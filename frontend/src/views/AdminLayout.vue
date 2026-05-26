@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <el-container class="admin-layout">
     <!-- 左侧导航 -->
     <el-aside :width="isCollapse ? '64px' : '220px'" class="admin-aside">
@@ -58,6 +58,10 @@
           <el-icon><TrendCharts /></el-icon>
           <span>数据驾驶舱</span>
         </el-menu-item>
+        <el-menu-item index="/admin/students">
+          <el-icon><User /></el-icon>
+          <span>学生管理</span>
+        </el-menu-item>
         <el-menu-item index="/admin/plagiarism">
           <el-icon><Search /></el-icon>
           <span>抄袭检测</span>
@@ -65,6 +69,10 @@
         <el-menu-item index="/admin/knowledge">
           <el-icon><Share /></el-icon>
           <span>知识图谱</span>
+        </el-menu-item>
+        <el-menu-item index="/admin/lesson-plan">
+          <el-icon><Document /></el-icon>
+          <span>教案生成</span>
         </el-menu-item>
         <el-menu-item index="/admin/sandbox">
           <el-icon><Box /></el-icon>
