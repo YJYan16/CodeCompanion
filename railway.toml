@@ -4,3 +4,6 @@ buildCommand = "pip install -r backend/requirements.txt"
 
 [deploy]
 startCommand = "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+
+[nixpacks]
+pythonVersion = "3.10"
