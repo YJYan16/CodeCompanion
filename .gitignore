@@ -5,3 +5,5 @@ __pycache__/
 kb_data/ 
 .env 
 ".env" 
+env/
+*.zip
