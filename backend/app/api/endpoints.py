@@ -9,17 +9,17 @@ import httpx
 from pydantic import BaseModel
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-from src.agents.coordinator import Coordinator
 from zhipuai import ZhipuAI
+from config.settings import get_settings
+from backend.app.core.agents import Coordinator
 
-API_KEY = os.environ.get("ZHIPU_API_KEY", "")
-coordinator = Coordinator(API_KEY)
-client = ZhipuAI(api_key=API_KEY)
+settings = get_settings()
+coordinator = Coordinator(settings.zhipu_api_key)
+client = ZhipuAI(api_key=settings.zhipu_api_key)
 
-# 本地模型配置
-LOCAL_MODEL_URL = "http://localhost:11434/api/generate"
-USE_LOCAL_MODEL = os.environ.get("USE_LOCAL_MODEL", "false").lower() == "true"
-LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "qwen2.5:0.5b")
+USE_LOCAL_MODEL = settings.use_local_model
+LOCAL_MODEL_NAME = settings.local_model_name
+LOCAL_MODEL_URL = settings.local_model_url
 
 router = APIRouter()
 
@@ -335,8 +335,9 @@ async def execute_sandbox(request: SandboxRequest):
             shutil.rmtree(tmpdir, ignore_errors=True)
             return {"success": result.returncode == 0, "output": result.stdout, "error": result.stderr}
         else:
-            result = subprocess.run(["python", "-c", request.code], capture_output=True, text=True, timeout=request.timeout)
-            return {"success": result.returncode == 0, "output": result.stdout, "error": result.stderr}
+            from src.sandbox.secure_executor import SecureExecutor
+            executor = SecureExecutor()
+            return executor.execute_python(request.code)
     except subprocess.TimeoutExpired:
         return {"success": False, "error": f"执行超时（{request.timeout}秒）", "output": ""}
     except FileNotFoundError:

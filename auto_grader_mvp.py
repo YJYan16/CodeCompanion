@@ -1,8 +1,13 @@
 import json
-from zhipuai import ZhipuAI
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# ================= 配置区域 =================
-client = ZhipuAI(api_key="f7b6d5fa6d2c4664b4bb00cf0b90a98b.3E214QD3EwjM9f8y")
+from zhipuai import ZhipuAI
+from config.settings import get_settings
+
+settings = get_settings()
+client = ZhipuAI(api_key=settings.zhipu_api_key)
 
 # ================= 提示词工程设计 =================
 SYSTEM_PROMPT = """你是一位严谨又耐心的Python编程导师“码途智伴”。

@@ -1,14 +1,17 @@
 import json
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from zhipuai import ZhipuAI
 from sentence_transformers import SentenceTransformer
 import chromadb
+from config.settings import get_settings
 
-# ================= 配置区域 =================
-client = ZhipuAI(api_key="f7b6d5fa6d2c4664b4bb00cf0b90a98b.3E214QD3EwjM9f8y")
+settings = get_settings()
+client = ZhipuAI(api_key=settings.zhipu_api_key)
 
-# 知识库路径（和构建脚本保持一致）
-KB_PATH = os.path.join(os.path.dirname(__file__), "kb_data")
+KB_PATH = os.path.join(os.path.dirname(__file__), settings.chromadb_path)
 
 # ================= 初始化知识库连接 =================
 print("⏳ 正在连接知识库...")
