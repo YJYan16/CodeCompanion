@@ -1,6 +1,7 @@
 # backend/app/core/init_db.py
 from sqlalchemy.orm import Session
 from app.core.database import engine, Base
+from app.core.auth import hash_password
 from app.models.database_models import User, Class, Question, Grade
 from datetime import datetime
 
@@ -17,28 +18,37 @@ def add_initial_data(db: Session):
     # 添加管理员用户
     admin = User(
         username="admin",
-        password="admin",
+        password=hash_password("admin123"),
         name="管理员",
         role="admin",
-        class_name="管理员"
+        class_name="",
     )
     db.add(admin)
-    
+
     # 添加学生用户
-    student = User(
-        username="student",
-        password="123456",
-        name="学生小明",
-        role="student",
-        class_name="高一(1)班"
-    )
-    db.add(student)
+    students = [
+        ("2024001", "张三", "默认班级"),
+        ("2024002", "李四", "默认班级"),
+        ("2024003", "王五", "默认班级"),
+    ]
+    for username, name, class_name in students:
+        db.add(
+            User(
+                username=username,
+                password=hash_password("123456"),
+                name=name,
+                role="student",
+                class_name=class_name,
+            )
+        )
     
     # 添加班级
-    class1 = Class(name="高一(1)班")
-    class2 = Class(name="高一(2)班")
+    class1 = Class(name="默认班级")
+    class2 = Class(name="高一(1)班")
+    class3 = Class(name="高一(2)班")
     db.add(class1)
     db.add(class2)
+    db.add(class3)
     
     # 添加题目
     questions = [

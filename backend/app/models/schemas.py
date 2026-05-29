@@ -87,3 +87,38 @@ class TutorResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    success: bool
+    token: str
+    user: dict
+
+
+class SaveGradeRequest(BaseModel):
+    user_id: int
+    question_id: str
+    code: str
+    language: str = "python"
+    overall_score: float
+    summary: str = ""
+    deductions: list | str = []
+    class_name: str = ""
+
+
+class DraftRequest(BaseModel):
+    question_id: str
+    code: str
+    language: str = "python"
+
+
+class ClientErrorReport(BaseModel):
+    message: str
+    stack: str = ""
+    url: str = ""
+    component: str = ""

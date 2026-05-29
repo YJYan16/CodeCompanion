@@ -1,7 +1,10 @@
 # backend/app/api/endpoints.py
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from ..models.schemas import GradeRequest, GradeResponse, TutorRequest, TutorResponse, HealthResponse, Deduction
+from ..models.schemas import (
+    GradeRequest, GradeResponse, TutorRequest, TutorResponse, HealthResponse, Deduction,
+    SaveGradeRequest,
+)
 from ..models.database_models import Question, Grade, User, Class
 from ..core.database import get_db
 from sqlalchemy.orm import Session
@@ -28,6 +31,7 @@ from zhipuai import ZhipuAI
 from config.settings import get_settings
 from backend.app.core.agents import Coordinator
 from backend.app.core.cache_service import get_cache
+from backend.app.core.websocket.manager import ws_manager
 
 settings = get_settings()
 coordinator = Coordinator(settings.zhipu_api_key)
@@ -157,52 +161,58 @@ async def delete_question(question_id: str, db: Session = Depends(get_db)):
 
 # 保存成绩
 @router.post("/grades")
-async def save_grade(
-    user_id: int,
-    question_id: str,
-    code: str,
-    language: str,
-    overall_score: float,
-    summary: str,
-    deductions: str,
-    class_name: str = "",
-    db: Session = Depends(get_db)
-):
-    # 获取题目ID
-    question = db.query(Question).filter(Question.question_id == question_id).first()
+async def save_grade(request: SaveGradeRequest, db: Session = Depends(get_db)):
+    question = db.query(Question).filter(Question.question_id == request.question_id).first()
     if not question:
         raise HTTPException(status_code=404, detail="题目不存在")
-    
-    # 获取班级
-    class_obj = db.query(Class).filter(Class.name == class_name).first()
+
+    class_obj = db.query(Class).filter(Class.name == request.class_name).first()
+    if not class_obj and request.class_name:
+        class_obj = Class(name=request.class_name)
+        db.add(class_obj)
+        db.flush()
+
     class_id = class_obj.id if class_obj else None
-    
-    # 获取用户
-    user = db.query(User).filter(User.id == user_id).first()
+
+    user = db.query(User).filter(User.id == request.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
-    
-    # 解析deductions
-    try:
-        deductions_json = json.loads(deductions)
-    except:
-        deductions_json = []
-    
+
+    if isinstance(request.deductions, str):
+        try:
+            deductions_json = json.loads(request.deductions)
+        except json.JSONDecodeError:
+            deductions_json = []
+    else:
+        deductions_json = request.deductions
+
     grade = Grade(
-        user_id=user_id,
+        user_id=request.user_id,
         question_id=question.id,
         class_id=class_id,
-        code=code,
-        language=language,
-        overall_score=overall_score,
-        summary=summary,
-        deductions=deductions_json
+        code=request.code,
+        language=request.language,
+        overall_score=request.overall_score,
+        summary=request.summary,
+        deductions=deductions_json,
     )
-    
+
     db.add(grade)
     db.commit()
     db.refresh(grade)
-    
+
+    await ws_manager.broadcast(
+        "grade_saved",
+        {
+            "grade_id": grade.id,
+            "user_id": request.user_id,
+            "user_name": user.name,
+            "question_id": request.question_id,
+            "overall_score": request.overall_score,
+            "class_name": request.class_name,
+        },
+    )
+
     return {"success": True, "message": "成绩保存成功", "grade_id": grade.id}
 
 # 获取所有成绩
@@ -354,26 +364,27 @@ async def create_user(
     
     return {"success": True, "message": "用户添加成功", "user_id": user.id}
 
-# 用户登录
-@router.post("/login")
-async def login(username: str, password: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == username).first()
+# 用户登录（兼容旧版 query 参数，推荐使用 /api/login JSON 接口）
+@router.post("/login/legacy")
+async def login_legacy(username: str, password: str, db: Session = Depends(get_db)):
+    from app.core.auth import authenticate_user, create_access_token
+
+    user = authenticate_user(db, username, password)
     if not user:
-        raise HTTPException(status_code=401, detail="用户名不存在")
-    
-    if user.password != password:
-        raise HTTPException(status_code=401, detail="密码错误")
-    
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    token = create_access_token({"sub": user.username, "role": user.role})
     return {
         "success": True,
         "message": "登录成功",
+        "token": token,
         "user": {
             "id": user.id,
             "username": user.username,
             "name": user.name,
             "role": user.role,
-            "class_name": user.class_name
-        }
+            "class_name": user.class_name or "",
+        },
     }
 
 
@@ -409,7 +420,7 @@ async def call_local_model(prompt: str) -> str:
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    return HealthResponse(status="ok", version="2.1.0")
+    return HealthResponse(status="ok", version="2.2.0")
 
 
 @router.get("/cache/stats")
@@ -833,31 +844,53 @@ async def pull_ollama_model():
 @router.post("/sandbox/execute")
 async def execute_sandbox(request: SandboxRequest):
     import subprocess
-    import tempfile
-    
+    from app.core.sandbox.secure_executor import SecureExecutor
+    from app.core.sandbox.docker_java_executor import DockerJavaExecutor
+
     try:
         if request.language == "java":
+            if settings.docker_java_enabled:
+                executor = DockerJavaExecutor(
+                    image=settings.docker_java_image,
+                    timeout=request.timeout,
+                )
+                return executor.execute(request.code)
+
+            import subprocess
+            import tempfile
+            import shutil
+
             tmpdir = tempfile.mkdtemp()
             filepath = os.path.join(tmpdir, "Main.java")
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(request.code)
-            
-            result = subprocess.run(["javac", filepath], capture_output=True, text=True, timeout=request.timeout)
+
+            result = subprocess.run(
+                ["javac", filepath], capture_output=True, text=True, timeout=request.timeout
+            )
             if result.returncode != 0:
+                shutil.rmtree(tmpdir, ignore_errors=True)
                 return {"success": False, "error": result.stderr, "output": ""}
-            
-            result = subprocess.run(["java", "-cp", tmpdir, "Main"], capture_output=True, text=True, timeout=request.timeout)
-            import shutil
+
+            result = subprocess.run(
+                ["java", "-cp", tmpdir, "Main"],
+                capture_output=True,
+                text=True,
+                timeout=request.timeout,
+            )
             shutil.rmtree(tmpdir, ignore_errors=True)
-            return {"success": result.returncode == 0, "output": result.stdout, "error": result.stderr}
-        else:
-            from src.sandbox.secure_executor import SecureExecutor
-            executor = SecureExecutor()
-            return executor.execute_python(request.code)
+            return {
+                "success": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+            }
+
+        executor = SecureExecutor()
+        return executor.execute_python(request.code)
     except subprocess.TimeoutExpired:
         return {"success": False, "error": f"执行超时（{request.timeout}秒）", "output": ""}
     except FileNotFoundError:
-        return {"success": False, "error": "未找到对应的运行环境（Python/Java）", "output": ""}
+        return {"success": False, "error": "未找到对应的运行环境（Python/Java/Docker）", "output": ""}
     except Exception as e:
         return {"success": False, "error": str(e), "output": ""}
 

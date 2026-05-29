@@ -56,7 +56,7 @@ const handleLogin = async () => {
   if (!valid) return
 
   loading.value = true
-  const result = authStore.login(form.username, form.password)
+  const result = await authStore.login(form.username, form.password)
   loading.value = false
 
   if (result.success) {

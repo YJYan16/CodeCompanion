@@ -291,7 +291,7 @@ const fillTemplate = () => {
 // ★ 加载题目列表
 const loadQuestions = async () => {
   try {
-    const response = await fetch('http://localhost:8001/api/questions')
+    const response = await fetch('/api/questions')
     const result = await response.json()
     if (result.questions) {
       const questionMap = {}
@@ -303,8 +303,7 @@ const loadQuestions = async () => {
         }
       })
       questionBank.value = questionMap
-      
-      // 设置默认选中第一个题目
+
       const keys = Object.keys(questionBank.value)
       if (keys.length > 0 && !selectedQuestion.value) {
         selectedQuestion.value = keys[0]
@@ -312,12 +311,11 @@ const loadQuestions = async () => {
     }
   } catch (error) {
     console.error('从API获取题目失败:', error)
-    // 回退到本地存储
     questionBank.value = adminStore.getQuestionsForStudent() || {}
   }
 }
 
-// ★ 提交批改
+// ★ 提交批改（SSE 流式）
 const submitGrade = async () => {
   if (!selectedQuestion.value) {
     alert('请先选择题目')
@@ -331,65 +329,83 @@ const submitGrade = async () => {
     alert('请先输入代码')
     return
   }
-  
+
+  const currentQ = questionBank.value[selectedQuestion.value]
+  const langKey = language.value === 'java' ? 'java' : 'python'
+  const questionText = currentQ?.description || currentQ?.title || ''
+  const rubrics = currentQ?.[langKey]?.rubrics || currentQ?.rubrics || ''
+
   loading.value = true
   report.value = null
   streamContent.value = ''
-  
+
   try {
-    const response = await fetch('http://localhost:8001/api/grade', {
+    const response = await fetch('/api/grade/stream', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authStore.token}`,
       },
       body: JSON.stringify({
         code: code.value,
         language: language.value,
-        question_id: selectedQuestion.value,
-        user_id: authStore.userId,
-        class_name: authStore.className
-      })
+        question: questionText,
+        rubrics,
+      }),
     })
-    
+
     const reader = response.body.getReader()
     const decoder = new TextDecoder('utf-8')
-    
-    const processStream = async () => {
+    let buffer = ''
+
+    while (true) {
       const { done, value } = await reader.read()
-      if (done) return
-      
-      const chunk = decoder.decode(value, { stream: true })
-      const lines = chunk.split('\n').filter(line => line.trim())
-      
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
       for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const data = line.slice(6).trim()
+        if (data === '[DONE]') {
+          loading.value = false
+          return
+        }
         try {
-          const msg = JSON.parse(line)
-          if (msg.type === 'review' || msg.type === 'content') streamContent.value += msg.content
-          else if (msg.type === 'result') {
-            report.value = { ...msg.data, streaming: false }
+          const msg = JSON.parse(data)
+          if (msg.type === 'review' || msg.type === 'content') {
+            streamContent.value += msg.content
+          } else if (msg.type === 'diagnosis') {
+            streamContent.value += `\n${msg.content}\n`
+          } else if (msg.type === 'result') {
+            report.value = { ...msg.data, summary: msg.data.summary || streamContent.value, streaming: false }
             reportJson.value = JSON.stringify(msg.data)
             generateKnowledgeAndPractices(msg.data)
             saveToTeacherStore(msg.data)
+            loading.value = false
           } else if (msg.type === 'error') {
-            report.value = { overall_score: '?', summary: '批改出错', deductions: [], streaming: false }
+            report.value = { overall_score: 0, summary: msg.content || '批改出错', deductions: [], streaming: false }
+            loading.value = false
           }
-        } catch (e) {}
+        } catch (e) {
+          // ignore parse errors for partial chunks
+        }
       }
-      
-      processStream()
     }
-    
-    processStream()
+    loading.value = false
   } catch (err) {
-    report.value = { overall_score: '?', summary: '请求失败', deductions: [], streaming: false }
+    report.value = { overall_score: 0, summary: '请求失败', deductions: [], streaming: false }
     loading.value = false
   }
 }
 
 // ★ 保存到教师端存储
 const saveToTeacherStore = (data) => {
-  const gradeData = {
+  adminStore.addGrade({
     userId: authStore.userId,
+    dbUserId: authStore.dbUserId,
     userName: authStore.name,
     className: authStore.className,
     questionId: selectedQuestion.value,
@@ -398,36 +414,35 @@ const saveToTeacherStore = (data) => {
     overall_score: data.overall_score,
     summary: data.summary,
     deductions: data.deductions || [],
-    submittedAt: new Date().toLocaleString()
-  }
-  
-  adminStore.addGrade(gradeData)
+    submittedAt: new Date().toLocaleString(),
+  })
 }
 
 // ★ 提交至教师
 const submitToTeacher = async () => {
   if (!report.value) return
-  
+
   submitting.value = true
-  
+
   try {
-    await fetch('http://localhost:8001/api/grades', {
+    await fetch('/api/grades', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authStore.token}`,
       },
       body: JSON.stringify({
-        user_id: authStore.userId,
+        user_id: authStore.dbUserId,
         question_id: selectedQuestion.value,
         code: code.value,
         language: language.value,
         overall_score: parseFloat(report.value.overall_score) || 0,
         summary: report.value.summary || '',
-        deductions: JSON.stringify(report.value.deductions || []),
-        class_name: authStore.className
-      })
+        deductions: report.value.deductions || [],
+        class_name: authStore.className,
+      }),
     })
-    
+
     alert('已成功提交给教师！')
   } catch (error) {
     console.error('提交失败:', error)
@@ -437,30 +452,40 @@ const submitToTeacher = async () => {
   }
 }
 
-// ★ 自动保存代码
-const autoSaveCode = () => {
-  if (!code.value.trim()) return
-  
-  const saveData = {
-    code: code.value,
-    language: language.value,
-    questionId: selectedQuestion.value,
-    savedAt: new Date().toLocaleString()
+// ★ 自动保存代码到后端
+const autoSaveCode = async () => {
+  if (!code.value.trim() || !selectedQuestion.value || !authStore.token) return
+
+  try {
+    await fetch('/api/drafts', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authStore.token}`,
+      },
+      body: JSON.stringify({
+        question_id: selectedQuestion.value,
+        code: code.value,
+        language: language.value,
+      }),
+    })
+    lastSavedTime.value = new Date().toLocaleTimeString()
+  } catch (e) {
+    console.error('自动保存失败:', e)
   }
-  
-  localStorage.setItem(`autoSave_${authStore.userId}`, JSON.stringify(saveData))
-  lastSavedTime.value = new Date().toLocaleTimeString()
 }
 
 // ★ 加载自动保存的代码
-const loadAutoSaveCode = () => {
+const loadAutoSaveCode = async () => {
+  if (!selectedQuestion.value || !authStore.token) return
   try {
-    const savedData = localStorage.getItem(`autoSave_${authStore.userId}`)
-    if (savedData) {
-      const data = JSON.parse(savedData)
-      code.value = data.code
-      language.value = data.language
-      selectedQuestion.value = data.questionId
+    const response = await fetch(`/api/drafts/${selectedQuestion.value}`, {
+      headers: { Authorization: `Bearer ${authStore.token}` },
+    })
+    const result = await response.json()
+    if (result.draft) {
+      code.value = result.draft.code
+      language.value = result.draft.language
     }
   } catch (e) {
     console.error('加载自动保存代码失败:', e)
@@ -582,7 +607,7 @@ const runCode = async () => {
   runResult.value = { success: false, output: '', error: '' }
   
   try {
-    const response = await fetch('http://localhost:8001/api/execute', {
+    const response = await fetch('/api/execute', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -653,7 +678,7 @@ onMounted(() => {
 // ★ 检查Ollama状态
 const checkOllamaStatus = async () => {
   try {
-    const response = await fetch('http://localhost:8001/api/ollama/status')
+    const response = await fetch('/api/ollama/status')
     const status = await response.json()
     ollamaStatus.value = status
   } catch (error) {
@@ -687,7 +712,7 @@ const toggleOfflineMode = async (value) => {
     
     // 发送切换请求
     try {
-      await fetch('http://localhost:8001/api/model/toggle', {
+      await fetch('/api/model/toggle', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -703,7 +728,7 @@ const toggleOfflineMode = async (value) => {
   } else {
     // 切换到在线模式
     try {
-      await fetch('http://localhost:8001/api/model/toggle', {
+      await fetch('/api/model/toggle', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

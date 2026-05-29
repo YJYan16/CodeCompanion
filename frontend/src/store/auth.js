@@ -1,60 +1,76 @@
 import { reactive } from 'vue'
-
-const presetUsers = {
-  '2024001': { password: '123456', role: 'student', name: '张三', class: '默认班级' },
-  '2024002': { password: '123456', role: 'student', name: '李四', class: '默认班级' },
-  '2024003': { password: '123456', role: 'student', name: '王五', class: '默认班级' },
-  'admin': { password: 'admin123', role: 'admin', name: '管理员', class: '' },
-}
+import api from '@/api/client.js'
 
 const authStore = reactive({
   isLoggedIn: false,
+  token: '',
   userId: '',
+  dbUserId: null,
   role: '',
   name: '',
   className: '',
 
-  login(userId, password) {
-    const userInfo = presetUsers[userId]
-    if (userInfo && userInfo.password === password) {
-      this.isLoggedIn = true
-      this.userId = userId
-      this.role = userInfo.role
-      this.name = userInfo.name
-      this.className = userInfo.class
-      localStorage.setItem('auth', JSON.stringify({
-        userId: userId,
-        role: userInfo.role,
-        name: userInfo.name,
-        className: userInfo.class
-      }))
-      return { success: true, role: userInfo.role }
+  async login(username, password) {
+    try {
+      const { data } = await api.post('/login', { username, password })
+      if (data.success && data.token) {
+        this.isLoggedIn = true
+        this.token = data.token
+        this.userId = data.user.username
+        this.dbUserId = data.user.id
+        this.role = data.user.role
+        this.name = data.user.name
+        this.className = data.user.class_name || '默认班级'
+        sessionStorage.setItem('auth_token', data.token)
+        sessionStorage.setItem('auth_user', JSON.stringify(data.user))
+        return { success: true, role: data.user.role }
+      }
+      return { success: false, role: '' }
+    } catch {
+      return { success: false, role: '' }
     }
-    return { success: false, role: '' }
   },
 
   logout() {
     this.isLoggedIn = false
+    this.token = ''
     this.userId = ''
+    this.dbUserId = null
     this.role = ''
     this.name = ''
     this.className = ''
-    localStorage.removeItem('auth')
+    sessionStorage.removeItem('auth_token')
+    sessionStorage.removeItem('auth_user')
   },
 
-  checkLogin() {
-    const saved = localStorage.getItem('auth')
-    if (saved) {
-      const data = JSON.parse(saved)
-      this.isLoggedIn = true
-      this.userId = data.userId
-      this.role = data.role
-      this.name = data.name || data.userId
-      this.className = data.className || '默认班级'
-      return true
+  async checkLogin() {
+    const token = sessionStorage.getItem('auth_token')
+    const savedUser = sessionStorage.getItem('auth_user')
+    if (!token || !savedUser) {
+      return false
     }
-    return false
-  }
+
+    this.token = token
+    const user = JSON.parse(savedUser)
+    this.isLoggedIn = true
+    this.userId = user.username
+    this.dbUserId = user.id
+    this.role = user.role
+    this.name = user.name
+    this.className = user.class_name || '默认班级'
+
+    try {
+      const { data } = await api.get('/me')
+      this.dbUserId = data.id
+      this.name = data.name
+      this.className = data.class_name || '默认班级'
+      sessionStorage.setItem('auth_user', JSON.stringify(data))
+      return true
+    } catch {
+      this.logout()
+      return false
+    }
+  },
 })
 
 export function useAuthStore() {

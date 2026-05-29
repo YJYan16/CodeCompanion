@@ -1,149 +1,159 @@
 import { reactive } from 'vue'
+import api from '@/api/client.js'
 
-// 默认班级数据
 const defaultClasses = ['默认班级']
 
-// 默认学生数据
-const defaultStudents = [
-  { userId: '2024001', name: '张三', class: '默认班级' },
-  { userId: '2024002', name: '李四', class: '默认班级' },
-  { userId: '2024003', name: '王五', class: '默认班级' },
-]
-
-// 默认题目数据
-const defaultQuestions = [
-  {
-    id: 'q1',
-    title: '找最大值',
-    description: '编写函数，接收整数列表/数组，返回最大值。不能使用内置排序/max函数。',
-    languages: ['python', 'java'],
-    python: {
-      description: '编写函数 find_max(numbers)，接收整数列表，返回最大值。',
-      rubrics: '1. 逻辑正确(60分)\n2. 代码规范(20分)\n3. 边界处理(20分)',
-      template: `# 题目：找最大值\ndef find_max(numbers):\n    pass`,
-      practices: []
-    },
-    java: {
-      description: '编写 findMax 方法，接收整数数组，返回最大值。',
-      rubrics: '1. 逻辑正确(60分)\n2. 代码规范(20分)\n3. 边界处理(20分)',
-      template: `// 找最大值 (Java)\npublic class Main {\n    public static int findMax(int[] numbers) {\n        return 0;\n    }\n}`,
-      practices: []
-    }
-  }
-]
-
 const adminStore = reactive({
-  classes: defaultClasses,
+  classes: [...defaultClasses],
   currentClass: '默认班级',
   allReports: { '默认班级': [] },
   questions: [],
-  students: defaultStudents,
+  students: [],
   grades: [],
+  loading: false,
 
-  init() {
-    const saved = localStorage.getItem('admin_classes')
-    if (saved) {
-      const data = JSON.parse(saved)
-      this.classes = data.classes || defaultClasses
-      this.currentClass = data.currentClass || '默认班级'
-      this.allReports = data.allReports || { '默认班级': [] }
-      this.students = data.students || defaultStudents
-    } else {
-      this.allReports = { '默认班级': [] }
+  async init() {
+    this.loading = true
+    try {
+      await Promise.all([
+        this.loadClasses(),
+        this.loadStudents(),
+        this.loadQuestions(),
+        this.loadGrades(),
+      ])
+    } finally {
+      this.loading = false
     }
-    this.loadStudentReports()
-    this.loadQuestions()
   },
 
-  loadStudentReports() {
-    const savedReports = localStorage.getItem('admin_reports')
-    if (savedReports) {
-      const reports = JSON.parse(savedReports)
-      reports.forEach(r => {
-        const className = r.class || '默认班级'
-        if (!this.allReports[className]) this.allReports[className] = []
-        if (!this.allReports[className].find(report => report.id === r.id)) {
-          this.allReports[className].push(r)
+  async loadClasses() {
+    try {
+      const { data } = await api.get('/classes')
+      const names = (data.classes || []).map((c) => c.name)
+      if (names.length) {
+        this.classes = names
+        if (!this.classes.includes(this.currentClass)) {
+          this.currentClass = this.classes[0]
         }
-      })
+      }
+    } catch (error) {
+      console.error('加载班级失败:', error)
     }
-    this.saveToStorage()
+  },
+
+  async loadStudents() {
+    try {
+      const { data } = await api.get('/users')
+      this.students = (data.users || [])
+        .filter((u) => u.role === 'student')
+        .map((u) => ({
+          userId: u.username,
+          name: u.name,
+          class: u.class_name || '默认班级',
+          dbId: u.id,
+        }))
+    } catch (error) {
+      console.error('加载学生失败:', error)
+    }
+  },
+
+  async loadGrades() {
+    try {
+      const { data } = await api.get('/grades')
+      this.grades = (data.grades || []).map((g) => ({
+        id: g.id,
+        userId: g.user_id,
+        userName: g.user_name,
+        questionId: g.question_id,
+        question: g.question_title,
+        className: g.class_name,
+        code: g.code,
+        language: g.language,
+        overall_score: g.overall_score,
+        summary: g.summary,
+        deductions: g.deductions || [],
+        submittedAt: g.submitted_at,
+      }))
+
+      this.allReports = {}
+      this.grades.forEach((g) => {
+        const className = g.className || '默认班级'
+        if (!this.allReports[className]) this.allReports[className] = []
+        this.allReports[className].push({
+          id: g.id,
+          userId: g.userId,
+          student_name: g.userName,
+          question: g.question,
+          overall_score: g.overall_score,
+          summary: g.summary,
+          class: className,
+          submittedAt: g.submittedAt,
+        })
+      })
+    } catch (error) {
+      console.error('加载成绩失败:', error)
+    }
   },
 
   async loadQuestions() {
     try {
-      const response = await fetch('http://localhost:8001/api/questions')
-      const result = await response.json()
-      if (result.questions) {
-        const questionMap = {}
-        result.questions.forEach(q => {
-          questionMap[q.id] = {
-            ...q,
-            languages: ['python', 'java'],
-            python: {
-              description: q.description,
-              rubrics: q.rubrics,
-              template: q.python
-            },
-            java: {
-              description: q.description,
-              rubrics: q.rubrics,
-              template: q.java
-            }
-          }
-        })
-        this.questions = Object.values(questionMap)
-        this.saveQuestions()
-        return
+      const { data } = await api.get('/questions')
+      if (data.questions) {
+        this.questions = data.questions.map((q) => ({
+          id: q.id,
+          title: q.title,
+          description: q.description,
+          languages: ['python', 'java'],
+          rubrics: q.rubrics,
+          python: {
+            description: q.description,
+            rubrics: q.rubrics,
+            template: q.python?.template || '',
+            practices: [],
+          },
+          java: {
+            description: q.description,
+            rubrics: q.rubrics,
+            template: q.java?.template || '',
+            practices: [],
+          },
+        }))
       }
     } catch (error) {
-      console.error('从API加载题目失败:', error)
-    }
-    
-    const saved = localStorage.getItem('admin_questions')
-    if (saved) {
-      this.questions = JSON.parse(saved)
-    } else {
-      this.questions = JSON.parse(JSON.stringify(defaultQuestions))
-      this.saveQuestions()
+      console.error('加载题目失败:', error)
     }
   },
 
   getQuestionsForStudent() {
     const result = {}
-    this.questions.forEach(q => {
+    this.questions.forEach((q) => {
       result[q.id] = q
     })
     return result
   },
 
   getQuestionById(id) {
-    return this.questions.find(q => q.id === id)
+    return this.questions.find((q) => q.id === id)
   },
 
-  addQuestion(question) {
-    const defaultPython = { description: '', rubrics: '', template: '', practices: [] }
-    const defaultJava = { description: '', rubrics: '', template: '', practices: [] }
-    
-    if (!question.python) question.python = { ...defaultPython }
-    if (!question.java) question.java = { ...defaultJava }
-    if (!question.python.practices) question.python.practices = []
-    if (!question.java.practices) question.java.practices = []
-    if (!question.description) question.description = question.python.description || ''
-    
-    const idx = this.questions.findIndex(q => q.id === question.id)
-    if (idx >= 0) this.questions[idx] = question
-    else this.questions.push(question)
-    this.saveQuestions()
+  async addQuestion(question) {
+    await api.post('/questions', null, {
+      params: {
+        question_id: question.id,
+        title: question.title,
+        description: question.description || '',
+        python_template: question.python?.template || '',
+        java_template: question.java?.template || '',
+        rubrics: question.python?.rubrics || question.rubrics || '',
+        difficulty: question.difficulty || '简单',
+      },
+    })
+    await this.loadQuestions()
   },
 
-  deleteQuestion(id) {
-    this.questions = this.questions.filter(q => q.id !== id)
-    this.saveQuestions()
-  },
-
-  saveQuestions() {
-    try { localStorage.setItem('admin_questions', JSON.stringify(this.questions)) } catch (e) {}
+  async deleteQuestion(id) {
+    await api.delete(`/questions/${id}`)
+    await this.loadQuestions()
   },
 
   get reports() {
@@ -151,56 +161,54 @@ const adminStore = reactive({
     return this.allReports[this.currentClass]
   },
 
-  addReport(report) {
-    if (!this.allReports[this.currentClass]) this.allReports[this.currentClass] = []
-    this.allReports[this.currentClass].push(report)
-    this.saveToStorage()
+  async addReport(report) {
+    try {
+      await api.post('/grades', {
+        user_id: report.user_id || report.userId,
+        question_id: report.question_id || report.questionId,
+        code: report.code || '',
+        language: report.language || 'python',
+        overall_score: report.overall_score || 0,
+        summary: report.summary || '',
+        deductions: report.deductions || [],
+        class_name: report.class_name || report.className || this.currentClass,
+      })
+      await this.loadGrades()
+    } catch (error) {
+      console.error('保存成绩失败:', error)
+    }
   },
 
-  addGrade(gradeData) {
-    this.grades.push({
+  async addGrade(gradeData) {
+    const student = this.students.find((s) => s.userId === gradeData.userId)
+    await this.addReport({
       ...gradeData,
-      id: Date.now(),
-      submittedAt: gradeData.submittedAt || new Date().toLocaleString()
+      user_id: student?.dbId || gradeData.dbUserId,
+      question_id: gradeData.questionId,
+      class_name: gradeData.className || this.currentClass,
     })
-    localStorage.setItem('adminGrades', JSON.stringify(this.grades))
   },
 
   getGrades() {
-    const saved = localStorage.getItem('adminGrades')
-    if (saved) {
-      this.grades = JSON.parse(saved)
-    }
     return this.grades
   },
 
-  clearGrades() {
-    this.grades = []
-    localStorage.removeItem('adminGrades')
-  },
-
-  addClass(name) {
-    if (!this.classes.includes(name)) {
-      this.classes.push(name)
-      this.allReports[name] = []
-      this.saveToStorage()
-    }
+  async addClass(name) {
+    if (!name || this.classes.includes(name)) return
+    await api.post('/classes', null, { params: { name } })
+    this.classes.push(name)
+    this.allReports[name] = []
+    this.currentClass = name
   },
 
   switchClass(name) {
     this.currentClass = name
-    this.saveToStorage()
   },
 
-  saveToStorage() {
-    try {
-      localStorage.setItem('admin_classes', JSON.stringify({
-        classes: this.classes,
-        currentClass: this.currentClass,
-        allReports: this.allReports,
-        students: this.students
-      }))
-    } catch (e) {}
+  handleRealtimeEvent(event, data) {
+    if (event === 'grade_saved') {
+      this.loadGrades()
+    }
   },
 
   getStats() {
@@ -211,54 +219,43 @@ const adminStore = reactive({
       passed: 0,
       failed: 0,
       questionStats: {},
-      studentStats: {}
+      studentStats: {},
     }
 
     if (reports.length === 0) return stats
 
     let totalScore = 0
-    reports.forEach(r => {
+    reports.forEach((r) => {
       const score = r.overall_score || 0
       totalScore += score
-      
       if (score >= 60) stats.passed++
       else stats.failed++
 
       const q = r.question || '未知'
-      if (!stats.questionStats[q]) {
-        stats.questionStats[q] = { total: 0, sum: 0, count: 0 }
-      }
+      if (!stats.questionStats[q]) stats.questionStats[q] = { total: 0, count: 0 }
       stats.questionStats[q].total += score
       stats.questionStats[q].count++
 
       const student = r.student_name || r.userId || '未知'
-      if (!stats.studentStats[student]) {
-        stats.studentStats[student] = { total: 0, count: 0, best: 0 }
-      }
+      if (!stats.studentStats[student]) stats.studentStats[student] = { total: 0, count: 0, best: 0 }
       stats.studentStats[student].total += score
       stats.studentStats[student].count++
-      if (score > stats.studentStats[student].best) {
-        stats.studentStats[student].best = score
-      }
+      if (score > stats.studentStats[student].best) stats.studentStats[student].best = score
     })
 
-    stats.averageScore = Math.round(totalScore / reports.length * 10) / 10
-
-    Object.keys(stats.questionStats).forEach(q => {
-      stats.questionStats[q].avg = Math.round(stats.questionStats[q].total / stats.questionStats[q].count * 10) / 10
+    stats.averageScore = Math.round((totalScore / reports.length) * 10) / 10
+    Object.keys(stats.questionStats).forEach((q) => {
+      stats.questionStats[q].avg = Math.round((stats.questionStats[q].total / stats.questionStats[q].count) * 10) / 10
     })
-
-    Object.keys(stats.studentStats).forEach(s => {
-      stats.studentStats[s].avg = Math.round(stats.studentStats[s].total / stats.studentStats[s].count * 10) / 10
+    Object.keys(stats.studentStats).forEach((s) => {
+      stats.studentStats[s].avg = Math.round((stats.studentStats[s].total / stats.studentStats[s].count) * 10) / 10
     })
-
     return stats
-  }
+  },
 })
-
-// 初始化
-adminStore.init()
 
 export function useAdminStore() {
   return adminStore
 }
+
+export { adminStore }

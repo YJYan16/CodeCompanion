@@ -18,7 +18,7 @@
         <!-- 第二行：用户信息 -->
         <div class="header-row">
           <el-tag type="success" effect="dark" round size="small">v2.0</el-tag>
-          <span class="header-user">{{ authStore.user }}</span>
+          <span class="header-user">{{ authStore.name }}</span>
           <el-button @click="handleLogout" type="danger" link size="small">退出</el-button>
         </div>
       </div>

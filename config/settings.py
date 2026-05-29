@@ -24,6 +24,20 @@ class Settings(BaseSettings):
     # 性能优化配置
     use_uvloop: bool = False  # Windows默认禁用
     use_orjson: bool = True
+
+    # JWT 认证
+    jwt_secret: str = "codecompanion-dev-secret-change-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 1440
+
+    # Docker Java 沙箱
+    docker_java_image: str = "eclipse-temurin:17-jdk"
+    docker_java_enabled: bool = True
+    docker_java_timeout: int = 10
+
+    # 日志
+    log_dir: str = "./logs"
+    log_level: str = "INFO"
     
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

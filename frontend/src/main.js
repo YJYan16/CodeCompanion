@@ -4,15 +4,44 @@ import App from './App.vue'
 import router from './router'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+import {
+  ArrowLeft,
+  Box,
+  DataAnalysis,
+  Document,
+  Edit,
+  Expand,
+  Fold,
+  Search,
+  Share,
+  TrendCharts,
+  Upload,
+  User,
+} from '@element-plus/icons-vue'
+import { setupErrorReporter } from '@/utils/errorReporter.js'
 
 const app = createApp(App)
-app.use(router)
-app.use(ElementPlus)
 
-// 注册所有图标
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+const icons = {
+  ArrowLeft,
+  Box,
+  DataAnalysis,
+  Document,
+  Edit,
+  Expand,
+  Fold,
+  Search,
+  Share,
+  TrendCharts,
+  Upload,
+  User,
+}
+
+for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)
 }
 
+app.use(router)
+app.use(ElementPlus)
+setupErrorReporter(app)
 app.mount('#app')

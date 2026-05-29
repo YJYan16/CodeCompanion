@@ -3,6 +3,21 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
+import { authStore } from '@/store/auth.js'
+import { adminStore } from '@/store/admin.js'
+import { useWebSocket } from '@/composables/useWebSocket.js'
+
+onMounted(async () => {
+  await authStore.checkLogin()
+  if (authStore.role === 'admin') {
+    await adminStore.init()
+  }
+})
+
+useWebSocket((event, data) => {
+  adminStore.handleRealtimeEvent(event, data)
+})
 </script>
 
 <style>
@@ -18,7 +33,6 @@ body {
   background: #f0f2f5;
 }
 
-/* 全局滚动条美化 */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -31,7 +45,6 @@ body {
   background: transparent;
 }
 
-/* 代码块全局样式 */
 .code-block {
   background: #1a1a2e !important;
   color: #e0e0e0 !important;
@@ -46,7 +59,6 @@ body {
   border: 1px solid #2a2a4a;
 }
 
-/* 渐变按钮动效 */
 .gradient-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
   border: none !important;

@@ -2,47 +2,54 @@
 import sys
 import os
 
-# 应用性能优化配置
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
 def apply_performance_optimizations():
-    """应用性能优化"""
     settings = None
     try:
-        sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
         from config.settings import get_settings
         settings = get_settings()
     except Exception:
         pass
-    
-    # 使用 uvloop 加速异步操作（默认禁用，避免Windows兼容性问题）
-    use_uvloop = getattr(settings, 'use_uvloop', False)
+
+    use_uvloop = getattr(settings, "use_uvloop", False)
     if use_uvloop:
         try:
             import uvloop
             uvloop.install()
-            print("uvloop 已启用，异步性能提升中...")
         except ImportError:
-            print("uvloop 未安装，使用标准事件循环")
+            pass
 
-# 在导入其他模块前应用优化
+
 apply_performance_optimizations()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api.endpoints import router
-from .core.cache_service import init_cache
-import sys
-import os
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from config.settings import get_settings
+from .api.endpoints import router
+from .api.auth_routes import router as auth_router
+from .api.draft_routes import router as draft_router
+from .api.websocket_routes import router as ws_router
+from .core.cache_service import init_cache
+from .core.database import SessionLocal
+from .core.init_db import init_db, add_initial_data
+from .core.middleware.request_logging import RequestLoggingMiddleware
+from .core.utils.logging_config import get_logger, setup_logging
+
+setup_logging()
+logger = get_logger("main")
 
 app = FastAPI(
     title="码途智伴 API",
     description="基于多智能体协作的编程教学AI引擎",
-    version="2.1.0"
+    version="2.2.0",
 )
 
-# 允许跨域
+settings = get_settings()
+
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -51,14 +58,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册路由
 app.include_router(router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
+app.include_router(draft_router, prefix="/api")
+app.include_router(ws_router)
 
-# 启动事件：初始化缓存
+
 @app.on_event("startup")
 async def startup_event():
     try:
-        settings = get_settings()
+        init_db()
+        db = SessionLocal()
+        try:
+            add_initial_data(db)
+        finally:
+            db.close()
+        logger.info("数据库已初始化")
+    except Exception as e:
+        logger.error("数据库初始化失败: %s", e)
+
+    try:
         init_cache(
             namespace=settings.cache_namespace,
             lru_maxsize=settings.lru_cache_maxsize,
@@ -67,11 +86,12 @@ async def startup_event():
             redis_port=settings.redis_port,
             redis_db=settings.redis_db,
             redis_password=settings.redis_password if settings.redis_password else None,
-            use_redis=settings.redis_enabled
+            use_redis=settings.redis_enabled,
         )
-        print("缓存系统已初始化")
+        logger.info("缓存系统已初始化")
     except Exception as e:
-        print(f"缓存系统初始化失败: {e}")
+        logger.error("缓存系统初始化失败: %s", e)
+
 
 if __name__ == "__main__":
     import uvicorn
