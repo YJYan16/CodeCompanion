@@ -1,19 +1,27 @@
 # backend/app/api/endpoints.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from ..models.schemas import GradeRequest, GradeResponse, TutorRequest, TutorResponse, HealthResponse, Deduction
+from ..models.database_models import Question, Grade, User, Class
+from ..core.database import get_db
+from sqlalchemy.orm import Session
 import sys
 import os
 import json
 import httpx
 import hashlib
 from pydantic import BaseModel
+from datetime import datetime
 
-# 性能优化：使用 orjson
 try:
     import orjson as json_lib
 except ImportError:
     import json as json_lib
+
+
+def sse_json_dumps(obj):
+    """SSE 响应的 JSON 序列化，使用标准 json 库以支持 ensure_ascii=False"""
+    return json.dumps(obj, ensure_ascii=False)
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 from zhipuai import ZhipuAI
@@ -31,6 +39,342 @@ LOCAL_MODEL_URL = settings.local_model_url
 CACHE_TTL = settings.redis_ttl
 
 router = APIRouter()
+
+# ================= 数据库操作接口 =================
+
+# 获取所有题目
+@router.get("/questions")
+async def get_all_questions(db: Session = Depends(get_db)):
+    questions = db.query(Question).all()
+    result = []
+    for q in questions:
+        result.append({
+            "id": q.question_id,
+            "title": q.title,
+            "description": q.description,
+            "python": {"template": q.python_template},
+            "java": {"template": q.java_template},
+            "rubrics": q.rubrics,
+            "difficulty": q.difficulty,
+            "created_at": q.created_at.isoformat() if q.created_at else None
+        })
+    return {"questions": result}
+
+# 获取单个题目
+@router.get("/questions/{question_id}")
+async def get_question(question_id: str, db: Session = Depends(get_db)):
+    question = db.query(Question).filter(Question.question_id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    return {
+        "id": question.question_id,
+        "title": question.title,
+        "description": question.description,
+        "python": {"template": question.python_template},
+        "java": {"template": question.java_template},
+        "rubrics": question.rubrics,
+        "difficulty": question.difficulty
+    }
+
+# 添加题目
+@router.post("/questions")
+async def create_question(
+    question_id: str,
+    title: str,
+    description: str = "",
+    python_template: str = "",
+    java_template: str = "",
+    rubrics: str = "",
+    difficulty: str = "简单",
+    db: Session = Depends(get_db)
+):
+    existing = db.query(Question).filter(Question.question_id == question_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="题目ID已存在")
+    
+    question = Question(
+        question_id=question_id,
+        title=title,
+        description=description,
+        python_template=python_template,
+        java_template=java_template,
+        rubrics=rubrics,
+        difficulty=difficulty,
+        updated_at=datetime.now()
+    )
+    db.add(question)
+    db.commit()
+    db.refresh(question)
+    
+    return {"success": True, "message": "题目添加成功"}
+
+# 更新题目
+@router.put("/questions/{question_id}")
+async def update_question(
+    question_id: str,
+    title: str = None,
+    description: str = None,
+    python_template: str = None,
+    java_template: str = None,
+    rubrics: str = None,
+    difficulty: str = None,
+    db: Session = Depends(get_db)
+):
+    question = db.query(Question).filter(Question.question_id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    
+    if title:
+        question.title = title
+    if description:
+        question.description = description
+    if python_template:
+        question.python_template = python_template
+    if java_template:
+        question.java_template = java_template
+    if rubrics:
+        question.rubrics = rubrics
+    if difficulty:
+        question.difficulty = difficulty
+    question.updated_at = datetime.now()
+    
+    db.commit()
+    db.refresh(question)
+    
+    return {"success": True, "message": "题目更新成功"}
+
+# 删除题目
+@router.delete("/questions/{question_id}")
+async def delete_question(question_id: str, db: Session = Depends(get_db)):
+    question = db.query(Question).filter(Question.question_id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    
+    db.delete(question)
+    db.commit()
+    
+    return {"success": True, "message": "题目删除成功"}
+
+# 保存成绩
+@router.post("/grades")
+async def save_grade(
+    user_id: int,
+    question_id: str,
+    code: str,
+    language: str,
+    overall_score: float,
+    summary: str,
+    deductions: str,
+    class_name: str = "",
+    db: Session = Depends(get_db)
+):
+    # 获取题目ID
+    question = db.query(Question).filter(Question.question_id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    
+    # 获取班级
+    class_obj = db.query(Class).filter(Class.name == class_name).first()
+    class_id = class_obj.id if class_obj else None
+    
+    # 获取用户
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    # 解析deductions
+    try:
+        deductions_json = json.loads(deductions)
+    except:
+        deductions_json = []
+    
+    grade = Grade(
+        user_id=user_id,
+        question_id=question.id,
+        class_id=class_id,
+        code=code,
+        language=language,
+        overall_score=overall_score,
+        summary=summary,
+        deductions=deductions_json
+    )
+    
+    db.add(grade)
+    db.commit()
+    db.refresh(grade)
+    
+    return {"success": True, "message": "成绩保存成功", "grade_id": grade.id}
+
+# 获取所有成绩
+@router.get("/grades")
+async def get_all_grades(db: Session = Depends(get_db)):
+    grades = db.query(Grade).all()
+    result = []
+    for g in grades:
+        question = db.query(Question).filter(Question.id == g.question_id).first()
+        user = db.query(User).filter(User.id == g.user_id).first()
+        class_obj = db.query(Class).filter(Class.id == g.class_id).first()
+        
+        result.append({
+            "id": g.id,
+            "user_id": g.user_id,
+            "user_name": user.name if user else "",
+            "question_id": question.question_id if question else "",
+            "question_title": question.title if question else "",
+            "class_name": class_obj.name if class_obj else "",
+            "code": g.code,
+            "language": g.language,
+            "overall_score": g.overall_score,
+            "summary": g.summary,
+            "deductions": g.deductions,
+            "submitted_at": g.submitted_at.isoformat() if g.submitted_at else None
+        })
+    return {"grades": result}
+
+# 获取指定班级的成绩
+@router.get("/grades/class/{class_name}")
+async def get_grades_by_class(class_name: str, db: Session = Depends(get_db)):
+    class_obj = db.query(Class).filter(Class.name == class_name).first()
+    if not class_obj:
+        raise HTTPException(status_code=404, detail="班级不存在")
+    
+    grades = db.query(Grade).filter(Grade.class_id == class_obj.id).all()
+    result = []
+    for g in grades:
+        question = db.query(Question).filter(Question.id == g.question_id).first()
+        user = db.query(User).filter(User.id == g.user_id).first()
+        
+        result.append({
+            "id": g.id,
+            "user_id": g.user_id,
+            "user_name": user.name if user else "",
+            "question_id": question.question_id if question else "",
+            "question_title": question.title if question else "",
+            "class_name": class_obj.name,
+            "code": g.code,
+            "language": g.language,
+            "overall_score": g.overall_score,
+            "summary": g.summary,
+            "deductions": g.deductions,
+            "submitted_at": g.submitted_at.isoformat() if g.submitted_at else None
+        })
+    return {"grades": result}
+
+# 获取指定用户的成绩
+@router.get("/grades/user/{user_id}")
+async def get_grades_by_user(user_id: int, db: Session = Depends(get_db)):
+    grades = db.query(Grade).filter(Grade.user_id == user_id).all()
+    result = []
+    for g in grades:
+        question = db.query(Question).filter(Question.id == g.question_id).first()
+        class_obj = db.query(Class).filter(Class.id == g.class_id).first()
+        
+        result.append({
+            "id": g.id,
+            "user_id": g.user_id,
+            "question_id": question.question_id if question else "",
+            "question_title": question.title if question else "",
+            "class_name": class_obj.name if class_obj else "",
+            "code": g.code,
+            "language": g.language,
+            "overall_score": g.overall_score,
+            "summary": g.summary,
+            "deductions": g.deductions,
+            "submitted_at": g.submitted_at.isoformat() if g.submitted_at else None
+        })
+    return {"grades": result}
+
+# 获取所有用户
+@router.get("/users")
+async def get_all_users(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    result = []
+    for u in users:
+        result.append({
+            "id": u.id,
+            "username": u.username,
+            "name": u.name,
+            "role": u.role,
+            "class_name": u.class_name,
+            "created_at": u.created_at.isoformat() if u.created_at else None
+        })
+    return {"users": result}
+
+# 获取所有班级
+@router.get("/classes")
+async def get_all_classes(db: Session = Depends(get_db)):
+    classes = db.query(Class).all()
+    result = []
+    for c in classes:
+        result.append({
+            "id": c.id,
+            "name": c.name,
+            "created_at": c.created_at.isoformat() if c.created_at else None
+        })
+    return {"classes": result}
+
+# 添加班级
+@router.post("/classes")
+async def create_class(name: str, db: Session = Depends(get_db)):
+    existing = db.query(Class).filter(Class.name == name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="班级已存在")
+    
+    class_obj = Class(name=name)
+    db.add(class_obj)
+    db.commit()
+    db.refresh(class_obj)
+    
+    return {"success": True, "message": "班级添加成功"}
+
+# 添加用户
+@router.post("/users")
+async def create_user(
+    username: str,
+    password: str,
+    name: str,
+    role: str = "student",
+    class_name: str = "",
+    db: Session = Depends(get_db)
+):
+    existing = db.query(User).filter(User.username == username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="用户名已存在")
+    
+    user = User(
+        username=username,
+        password=password,
+        name=name,
+        role=role,
+        class_name=class_name
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    return {"success": True, "message": "用户添加成功", "user_id": user.id}
+
+# 用户登录
+@router.post("/login")
+async def login(username: str, password: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="用户名不存在")
+    
+    if user.password != password:
+        raise HTTPException(status_code=401, detail="密码错误")
+    
+    return {
+        "success": True,
+        "message": "登录成功",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "name": user.name,
+            "role": user.role,
+            "class_name": user.class_name
+        }
+    }
 
 
 def hash_code_content(code: str) -> str:
@@ -167,11 +511,11 @@ async def grade_code_stream(request: GradeRequest):
             
             if cached_result is not None:
                 print(f"✅ 命中缓存")
-                yield f"data: {json_lib.dumps({'type': 'diagnosis', 'content': '从缓存加载数据中...'}, ensure_ascii=False)}\n\n"
+                yield f"data: {sse_json_dumps({'type': 'diagnosis', 'content': '从缓存加载数据中...'})}\n\n"
                 
                 # 输出评语
                 for char in cached_result.get("summary", ""):
-                    yield f"data: {json_lib.dumps({'type': 'review', 'content': char}, ensure_ascii=False)}\n\n"
+                    yield f"data: {sse_json_dumps({'type': 'review', 'content': char})}\n\n"
                 
                 # 输出结果
                 result_data = {
@@ -182,7 +526,7 @@ async def grade_code_stream(request: GradeRequest):
                         'deductions': cached_result['deductions']
                     }
                 }
-                yield f"data: {json_lib.dumps(result_data, ensure_ascii=False)}\n\n"
+                yield f"data: {sse_json_dumps(result_data)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
             
@@ -193,7 +537,7 @@ async def grade_code_stream(request: GradeRequest):
             )
             
             diag_msg = f"🔍 诊断完成：{diagnosis.get('summary', '')}"
-            yield f"data: {json_lib.dumps({'type': 'diagnosis', 'content': diag_msg}, ensure_ascii=False)}\n\n"
+            yield f"data: {sse_json_dumps({'type': 'diagnosis', 'content': diag_msg})}\n\n"
             
             lang_hint = ""
             if request.language == "java":
@@ -221,7 +565,7 @@ async def grade_code_stream(request: GradeRequest):
             if USE_LOCAL_MODEL:
                 review_text = await call_local_model(f"{review_system}\n\n{review_prompt}")
                 for char in review_text:
-                    yield f"data: {json_lib.dumps({'type': 'review', 'content': char}, ensure_ascii=False)}\n\n"
+                    yield f"data: {sse_json_dumps({'type': 'review', 'content': char})}\n\n"
             else:
                 response1 = client.chat.completions.create(
                     model="glm-4-flash",
@@ -236,7 +580,7 @@ async def grade_code_stream(request: GradeRequest):
                     content = chunk.choices[0].delta.content
                     if content is not None:
                         review_text += content
-                        yield f"data: {json_lib.dumps({'type': 'review', 'content': content}, ensure_ascii=False)}\n\n"
+                        yield f"data: {sse_json_dumps({'type': 'review', 'content': content})}\n\n"
 
             score_prompt = f"""请根据以下信息生成评分JSON。
 
@@ -293,11 +637,11 @@ async def grade_code_stream(request: GradeRequest):
                 }, ttl=CACHE_TTL)
                 
                 result_data = {'type': 'result', 'data': score_data}
-                yield f"data: {json_lib.dumps(result_data, ensure_ascii=False)}\n\n"
+                yield f"data: {sse_json_dumps(result_data)}\n\n"
             except Exception as e:
                 print(f"❌ JSON解析失败: {e}")
                 error_result = {'type': 'result', 'data': {'overall_score': 0, 'summary': review_text, 'deductions': []}}
-                yield f"data: {json_lib.dumps(error_result, ensure_ascii=False)}\n\n"
+                yield f"data: {sse_json_dumps(error_result)}\n\n"
             
             yield "data: [DONE]\n\n"
             
@@ -305,7 +649,7 @@ async def grade_code_stream(request: GradeRequest):
             import traceback
             traceback.print_exc()
             error_data = {'type': 'error', 'content': str(e)}
-            yield f"data: {json_lib.dumps(error_data, ensure_ascii=False)}\n\n"
+            yield f"data: {sse_json_dumps(error_data)}\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -345,7 +689,7 @@ async def tutor_chat_stream(request: TutorRequest):
                 prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
                 answer = await call_local_model(prompt)
                 for char in answer:
-                    yield f"data: {json_lib.dumps({'content': char}, ensure_ascii=False)}\n\n"
+                    yield f"data: {sse_json_dumps({'content': char})}\n\n"
             else:
                 response = client.chat.completions.create(
                     model="glm-4-flash",
@@ -356,12 +700,12 @@ async def tutor_chat_stream(request: TutorRequest):
                 for chunk in response:
                     content = chunk.choices[0].delta.content
                     if content is not None:
-                        yield f"data: {json_lib.dumps({'content': content}, ensure_ascii=False)}\n\n"
+                        yield f"data: {sse_json_dumps({'content': content})}\n\n"
             
             yield "data: [DONE]\n\n"
             
         except Exception as e:
-            yield f"data: {json_lib.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {sse_json_dumps({'error': str(e)})}\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -410,6 +754,80 @@ class SandboxRequest(BaseModel):
     code: str
     language: str = "python"
     timeout: int = 5
+
+
+# 简化的代码执行接口（供学生端使用）
+@router.post("/execute")
+async def execute_code(request: SandboxRequest):
+    """简化的代码执行接口"""
+    return await execute_sandbox(request)
+
+
+# ================= Ollama 离线模式支持 =================
+
+@router.get("/ollama/status")
+async def check_ollama_status():
+    """检查Ollama服务状态和模型可用性"""
+    import httpx
+    
+    status = {
+        "connected": False,
+        "model_available": False,
+        "model_name": LOCAL_MODEL_NAME,
+        "error": None,
+        "suggestion": ""
+    }
+    
+    try:
+        # 检查Ollama服务是否运行
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("http://localhost:11434/api/tags")
+            
+            if response.status_code == 200:
+                status["connected"] = True
+                data = response.json()
+                models = data.get('models', [])
+                
+                # 检查指定模型是否可用
+                model_prefix = LOCAL_MODEL_NAME.split(':')[0]
+                status["model_available"] = any(
+                    model.get('name', '').startswith(model_prefix) 
+                    for model in models
+                )
+                
+                if not status["model_available"]:
+                    status["suggestion"] = f"请运行命令下载模型: `ollama pull {LOCAL_MODEL_NAME}`"
+            else:
+                status["error"] = f"Ollama服务返回错误: {response.status_code}"
+                
+    except httpx.ConnectError:
+        status["error"] = "无法连接到Ollama服务，请确保Ollama已启动"
+        status["suggestion"] = "请先安装Ollama并启动服务，然后运行: `ollama pull qwen2.5:7b`"
+    except Exception as e:
+        status["error"] = str(e)
+    
+    return status
+
+
+@router.post("/ollama/pull")
+async def pull_ollama_model():
+    """拉取Ollama模型"""
+    import httpx
+    
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(
+                "http://localhost:11434/api/pull",
+                json={"name": LOCAL_MODEL_NAME, "stream": False}
+            )
+            
+            if response.status_code == 200:
+                return {"success": True, "message": f"模型 {LOCAL_MODEL_NAME} 拉取成功"}
+            else:
+                return {"success": False, "message": f"拉取失败: {response.text}"}
+                
+    except Exception as e:
+        return {"success": False, "message": f"拉取失败: {str(e)}"}
 
 
 @router.post("/sandbox/execute")

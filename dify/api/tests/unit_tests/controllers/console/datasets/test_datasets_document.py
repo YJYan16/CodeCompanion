@@ -1320,7 +1320,7 @@ class TestDocumentListAdvancedCases:
         doc = MagicMock()
         payload = {
             "doc_type": "contract",
-            "doc_metadata": {"amount": 5000, "currency": "USD", "invalid_field": "x"},
+            "doc_metadata": {"amount": 8001, "currency": "USD", "invalid_field": "x"},
         }
 
         schema = {"amount": int, "currency": str}
@@ -1340,7 +1340,7 @@ class TestDocumentListAdvancedCases:
             response, status = method(api, "ds-1", "doc-1")
 
             assert status == 200
-            assert doc.doc_metadata == {"amount": 5000, "currency": "USD"}
+            assert doc.doc_metadata == {"amount": 8001, "currency": "USD"}
 
 
 class TestDocumentIndexingEdgeCases:

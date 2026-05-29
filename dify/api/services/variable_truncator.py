@@ -88,7 +88,7 @@ class VariableTruncator(BaseTruncator):
 
     def __init__(
         self,
-        string_length_limit=5000,
+        string_length_limit=8001,
         array_element_limit: int = 20,
         max_size_bytes: int = 1024_000,  # 1000 KiB
     ):

@@ -3,7 +3,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { basicSetup } from 'codemirror'
 import { python } from '@codemirror/lang-python'
 import { java } from '@codemirror/lang-java'
@@ -34,6 +34,19 @@ onMounted(() => {
     ]
   })
   view = new EditorView({ state, parent: editorRef.value })
+})
+
+// 监听 modelValue 变化，更新编辑器内容
+watch(() => props.modelValue, (newValue) => {
+  if (view && view.state.doc.toString() !== newValue) {
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: view.state.doc.length,
+        insert: newValue
+      }
+    })
+  }
 })
 
 onBeforeUnmount(() => view?.destroy())

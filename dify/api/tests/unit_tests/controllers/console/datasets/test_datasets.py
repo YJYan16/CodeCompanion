@@ -1863,7 +1863,7 @@ class TestDatasetApiBaseUrlApi:
         method = unwrap(api.get)
 
         with (
-            app.test_request_context("http://localhost:5000/"),
+            app.test_request_context("http://localhost:8001/"),
             patch(
                 "controllers.console.datasets.datasets.dify_config.SERVICE_API_URL",
                 None,
@@ -1871,7 +1871,7 @@ class TestDatasetApiBaseUrlApi:
         ):
             response = method(api)
 
-        assert response["api_base_url"] == "http://localhost:5000/v1"
+        assert response["api_base_url"] == "http://localhost:8001/v1"
 
     def test_get_api_base_url_no_double_v1(self, app: Flask):
         api = DatasetApiBaseUrlApi()

@@ -569,7 +569,7 @@ class TestFileService:
         db_session_with_containers.commit()
 
         # Mock long text content
-        long_text = "x" * 5000  # Longer than PREVIEW_WORDS_LIMIT
+        long_text = "x" * 8001  # Longer than PREVIEW_WORDS_LIMIT
         mock_external_service_dependencies["extract_processor"].load_from_upload_file.return_value = long_text
 
         result = FileService(engine).get_file_preview(file_id=upload_file.id, tenant_id=upload_file.tenant_id)

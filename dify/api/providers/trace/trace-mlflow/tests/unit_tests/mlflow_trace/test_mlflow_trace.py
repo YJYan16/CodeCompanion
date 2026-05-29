@@ -209,7 +209,7 @@ def mock_db():
 @pytest.fixture
 def trace_instance(mock_mlflow):
     """Create an MLflowDataTrace using a basic MLflowConfig (no auth)."""
-    config = MLflowConfig(tracking_uri="http://localhost:5000", experiment_id="0")
+    config = MLflowConfig(tracking_uri="http://localhost:8001", experiment_id="0")
     return MLflowDataTrace(config)
 
 
@@ -231,16 +231,16 @@ class TestDatetimeToNanoseconds:
 
 class TestInit:
     def test_mlflow_config_no_auth(self, mock_mlflow):
-        config = MLflowConfig(tracking_uri="http://localhost:5000", experiment_id="0")
+        config = MLflowConfig(tracking_uri="http://localhost:8001", experiment_id="0")
         trace = MLflowDataTrace(config)
-        mock_mlflow.set_tracking_uri.assert_called_with("http://localhost:5000")
+        mock_mlflow.set_tracking_uri.assert_called_with("http://localhost:8001")
         mock_mlflow.set_experiment.assert_called_with(experiment_id="0")
-        assert trace.get_project_url() == "http://localhost:5000/#/experiments/0/traces"
+        assert trace.get_project_url() == "http://localhost:8001/#/experiments/0/traces"
         assert os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"] == "true"
 
     def test_mlflow_config_with_auth(self, mock_mlflow):
         config = MLflowConfig(
-            tracking_uri="http://localhost:5000",
+            tracking_uri="http://localhost:8001",
             experiment_id="1",
             username="user",
             password="pass",

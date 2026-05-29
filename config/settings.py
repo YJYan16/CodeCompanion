@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     zhipu_api_key: str = ""
     chromadb_path: str = "./kb_data"
     local_model_url: str = "http://localhost:11434/api/generate"
-    local_model_name: str = "qwen2.5:0.5b"
+    local_model_name: str = "qwen2.5:7b"  # 使用Qwen2.5-7B量化模型
     use_local_model: bool = False
     
     # Redis配置

@@ -56,12 +56,14 @@ router.beforeEach((to, from, next) => {
     return
   }
 
-  // ★ 教师端路由不需要 role 匹配，只要登录就行
+  // ★ 教师端路由需要管理员权限
   if (to.path.startsWith('/admin')) {
     if (!isLoggedIn) {
       next('/login')
     } else if (authStore.role !== 'admin') {
-      next('/')
+      // 如果当前登录的不是管理员，跳转到登录页让用户重新登录
+      authStore.logout()
+      next('/login')
     } else {
       next()
     }

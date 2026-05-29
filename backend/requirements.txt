@@ -16,3 +16,5 @@ orjson
 msgpack
 uvloop
 aioredis
+sqlalchemy==2.0.23
+python-dotenv

@@ -562,7 +562,7 @@ class TestWorkflowResponseConverterServiceApiTruncation:
         large_value: dict[str, Any] = {
             "large_string": "x" * 10000,  # Large string
             "large_list": list(range(2000)),  # Large array
-            "nested_data": {"deep_nested": {"very_deep": {"value": "x" * 5000}}},
+            "nested_data": {"deep_nested": {"very_deep": {"value": "x" * 8001}}},
         }
 
         event = QueueNodeSucceededEvent(
@@ -698,8 +698,8 @@ class TestWorkflowResponseConverterServiceApiTruncation:
         """Test that Service API doesn't truncate node finish events."""
         converter = self.create_test_converter(InvokeFrom.SERVICE_API)
         # Create test event with large data
-        large_inputs = {"input1": "x" * 5000, "input2": list(range(2000))}
-        large_process_data = {"process1": "y" * 5000, "process2": {"nested": ["z"] * 2000}}
+        large_inputs = {"input1": "x" * 8001, "input2": list(range(2000))}
+        large_process_data = {"process1": "y" * 8001, "process2": {"nested": ["z"] * 2000}}
         large_outputs = {"output1": "result" * 1000, "output2": list(range(2000))}
 
         event = TestWorkflowResponseConverterServiceApiTruncation._create_event_by_type(
@@ -727,9 +727,9 @@ class TestWorkflowResponseConverterServiceApiTruncation:
         converter = self.create_test_converter(InvokeFrom.SERVICE_API)
 
         # Create test event with large data
-        large_inputs = {"retry_input": "x" * 5000}
-        large_process_data = {"retry_process": "y" * 5000}
-        large_outputs = {"retry_output": "z" * 5000}
+        large_inputs = {"retry_input": "x" * 8001}
+        large_process_data = {"retry_process": "y" * 8001}
+        large_outputs = {"retry_output": "z" * 8001}
 
         # First, we need to store a snapshot by simulating a start event
         start_event = QueueNodeStartedEvent(

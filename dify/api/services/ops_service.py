@@ -122,7 +122,7 @@ class OpsService:
                 project_url = OpsTraceManager.get_trace_config_project_url(decrypt_tracing_config, tracing_provider)
                 new_decrypt_tracing_config.update({"project_url": project_url})
             except Exception:
-                new_decrypt_tracing_config.update({"project_url": "http://localhost:5000/"})
+                new_decrypt_tracing_config.update({"project_url": "http://localhost:8001/"})
 
         if tracing_provider == "databricks" and (
             "project_url" not in decrypt_tracing_config or not decrypt_tracing_config.get("project_url")

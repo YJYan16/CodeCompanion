@@ -153,8 +153,8 @@ class VikingDBVector(BaseVector):
         # not support json type
         results = self._client.get_index(self._collection_name, self._index_name).search(
             filter={"op": "must", "field": vdb_Field.GROUP_KEY, "conds": [self._group_id]},
-            # max value is 5000
-            limit=5000,
+            # max value is 8001
+            limit=8001,
         )
 
         if not results:

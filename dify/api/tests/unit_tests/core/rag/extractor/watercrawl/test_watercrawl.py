@@ -301,7 +301,7 @@ class TestWaterCrawlProvider:
                 "uuid": job_id,
                 "options": {"spider_options": {"page_limit": 3}},
                 "number_of_documents": 1,
-                "duration": "00:00:01.500000",
+                "duration": "00:00:01.800100",
             },
         )
 

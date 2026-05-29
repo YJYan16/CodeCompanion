@@ -1232,7 +1232,7 @@ class TestIndexingRunnerSplitter:
         """Test splitter validation rejects max_tokens above maximum."""
         # Arrange
         with patch("core.indexing_runner.dify_config") as mock_config:
-            mock_config.INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH = 5000
+            mock_config.INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH = 8001
 
             # Act & Assert
             with pytest.raises(ValueError, match="Custom segment length should be between"):

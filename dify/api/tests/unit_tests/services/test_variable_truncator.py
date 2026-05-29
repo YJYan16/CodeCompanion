@@ -451,7 +451,7 @@ class TestSegmentBasedTruncation:
     def test_final_size_fallback_string_truncation(self, small_truncator):
         """Test final fallback for string that still exceeds limit."""
         # Create very long string that exceeds string length limit
-        very_long_string = "x" * 6000  # Exceeds default string_length_limit of 5000
+        very_long_string = "x" * 6000  # Exceeds default string_length_limit of 8001
         segment = StringSegment(value=very_long_string)
 
         # Use small limit to test string fallback path

@@ -60,7 +60,7 @@ class StreamsTopic:
         self._key = serialize_redis_name(f"stream:{topic}")
         self._retention_seconds = retention_seconds
         self._join_timeout_ms = max(int(join_timeout_ms or 0), 0)
-        self.max_length = 5000
+        self.max_length = 8001
 
     def as_producer(self) -> Producer:
         return self

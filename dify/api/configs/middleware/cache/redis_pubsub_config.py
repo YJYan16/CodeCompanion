@@ -82,7 +82,7 @@ class RedisPubSubConfig(BaseSettings):
             "the thread to notice the subscription was closed. Setting this lower (e.g. 100) lets close() "
             "return promptly while the daemon listener thread cleans itself up on the next poll "
             "boundary - safe because the listener holds no critical state and exits within one poll "
-            "window. Setting it higher (e.g. 5000) gives the listener more grace before close() gives up "
+            "window. Setting it higher (e.g. 8001) gives the listener more grace before close() gives up "
             "and logs a warning. Default 2000ms preserves the pre-change behaviour.\n\n"
             "Also accepts ENV: EVENT_BUS_LISTENER_JOIN_TIMEOUT_MS."
         ),

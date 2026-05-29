@@ -85,7 +85,7 @@
                     "app_id": "98b87f88-bd22-4d86-8b74-86beba5e0ed4",
                     "categories": ["Workflow"],
                     "copyright": null,
-                    "description": "A workflow designed to translate a full book up to 15000 tokens per run. Uses Code node to separate text into chunks and Iteration to translate each chunk. ",
+                    "description": "A workflow designed to translate a full book up to 18001 tokens per run. Uses Code node to separate text into chunks and Iteration to translate each chunk. ",
                     "is_listed": true,
                     "position": 5,
                     "privacy_policy": null

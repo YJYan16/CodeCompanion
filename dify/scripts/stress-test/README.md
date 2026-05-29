@@ -304,7 +304,7 @@ iterations: 1000
 
 ```yaml
 concurrency: 500
-iterations: 5000
+iterations: 8001
 ```
 
 ### Stress Test

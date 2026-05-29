@@ -142,7 +142,7 @@ class FeatureModel(FeatureResponseModel):
     workspace_members: LicenseLimitationModel = LicenseLimitationModel(enabled=False, size=0, limit=0)
     is_allow_transfer_workspace: bool = True
     trigger_event: Quota = Quota(usage=0, limit=3000, reset_date=0)
-    api_rate_limit: Quota = Quota(usage=0, limit=5000, reset_date=0)
+    api_rate_limit: Quota = Quota(usage=0, limit=8001, reset_date=0)
     # Controls whether email delivery is allowed for HumanInput nodes.
     human_input_email_delivery_enabled: bool = False
     knowledge_pipeline: KnowledgePipeline = KnowledgePipeline()

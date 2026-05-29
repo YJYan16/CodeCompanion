@@ -53,7 +53,7 @@ class WaterCrawlProvider:
             "include_html": False,
             "only_main_content": options.get("only_main_content", True),
             "include_links": False,
-            "timeout": 15000,
+            "timeout": 18001,
             "accept_cookies_selector": "#cookies-accept",
             "locale": "en-US",
             "actions": [],

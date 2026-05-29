@@ -186,10 +186,10 @@ class TestGenerateDottedOrder:
         """Test dotted_order generation with parent order uses dot separator."""
         start_time = datetime(2025, 12, 23, 4, 19, 55, 111000)
         run_id = "child-run-id"
-        parent_order = "20251223T041955000000Zparent-run-id"
+        parent_order = "20251223T041958001000Zparent-run-id"
         result = generate_dotted_order(run_id, start_time, parent_order)
 
-        assert result == "20251223T041955000000Zparent-run-id.20251223T041955111000Zchild-run-id"
+        assert result == "20251223T041958001000Zparent-run-id.20251223T041955111000Zchild-run-id"
 
     def test_dotted_order_without_parent_has_no_dot(self):
         """Test dotted_order generation without parent has no dot separator."""

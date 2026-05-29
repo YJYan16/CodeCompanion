@@ -413,7 +413,7 @@ def test_build_segment_file_array_with_different_file_types():
         filename="video",
         extension=".mp4",
         mime_type="video/mp4",
-        size=5000,
+        size=8001,
     )
 
     audio_file = File(

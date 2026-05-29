@@ -68,7 +68,7 @@ LARGE_MESSAGES = [
 
 VERY_LARGE_MESSAGES = [
     b"very_large_message_" + b"x" * 10000,  # ~10KB
-    b"very_large_message_" + b"y" * 50000,  # ~50KB
+    b"very_large_message_" + b"y" * 80010,  # ~50KB
     b"very_large_message_" + b"z" * 100000,  # ~100KB
 ]
 
@@ -204,7 +204,7 @@ PERFORMANCE_TEST_CONFIGS = [
     },
     {
         "name": "large_messages_low_frequency",
-        "message_size": 5000,
+        "message_size": 8001,
         "message_count": 10,
         "description": "Large messages",
     },

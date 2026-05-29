@@ -7,7 +7,7 @@ const presetUsers = {
   'admin': { password: 'admin123', role: 'admin', name: '管理员', class: '' },
 }
 
-export const authStore = reactive({
+const authStore = reactive({
   isLoggedIn: false,
   userId: '',
   role: '',
@@ -56,3 +56,9 @@ export const authStore = reactive({
     return false
   }
 })
+
+export function useAuthStore() {
+  return authStore
+}
+
+export { authStore }

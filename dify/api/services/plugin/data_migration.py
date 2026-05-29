@@ -146,7 +146,7 @@ limit 1000"""
                     AND {provider_column_name} != ''
                     AND id > :last_id
                 ORDER BY id ASC
-                LIMIT 5000
+                LIMIT 8001
             """
             params = {"last_id": last_id or ""}
 

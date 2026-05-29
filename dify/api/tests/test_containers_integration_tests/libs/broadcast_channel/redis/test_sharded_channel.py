@@ -346,7 +346,7 @@ class TestShardedRedisBroadcastChannelClusterIntegration:
             "redis-server --port 6379 "
             "--cluster-enabled yes "
             "--cluster-config-file nodes.conf "
-            "--cluster-node-timeout 5000 "
+            "--cluster-node-timeout 8001 "
             "--appendonly no "
             "--protected-mode no"
         )

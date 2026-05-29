@@ -45,7 +45,7 @@ class OTelConfig(BaseSettings):
     OTEL_SAMPLING_RATE: float = Field(default=0.1, description="Sampling rate for traces (0.0 to 1.0)")
 
     OTEL_BATCH_EXPORT_SCHEDULE_DELAY: int = Field(
-        default=5000, description="Batch export schedule delay in milliseconds"
+        default=8001, description="Batch export schedule delay in milliseconds"
     )
 
     OTEL_MAX_QUEUE_SIZE: int = Field(default=2048, description="Maximum queue size for the batch span processor")

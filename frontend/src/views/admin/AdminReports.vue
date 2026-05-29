@@ -1,5 +1,37 @@
 <template>
   <div class="admin-page">
+    <!-- 统计卡片 -->
+    <div class="stats-grid">
+      <el-card class="stat-card">
+        <div class="stat-icon">📝</div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.total }}</div>
+          <div class="stat-label">批改总数</div>
+        </div>
+      </el-card>
+      <el-card class="stat-card success">
+        <div class="stat-icon">✅</div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.passed }}</div>
+          <div class="stat-label">及格人数</div>
+        </div>
+      </el-card>
+      <el-card class="stat-card warning">
+        <div class="stat-icon">⚠️</div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.failed }}</div>
+          <div class="stat-label">不及格人数</div>
+        </div>
+      </el-card>
+      <el-card class="stat-card primary">
+        <div class="stat-icon">📊</div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.averageScore }}<span class="stat-unit">分</span></div>
+          <div class="stat-label">平均分</div>
+        </div>
+      </el-card>
+    </div>
+
     <el-card>
       <template #header>
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -29,6 +61,33 @@
           </div>
         </div>
       </template>
+
+      <!-- 题目统计 -->
+      <div v-if="Object.keys(stats.questionStats).length > 0" class="question-stats">
+        <h4>📋 题目统计</h4>
+        <el-row :gutter="16">
+          <el-col v-for="(stat, q) in stats.questionStats" :key="q" :span="8">
+            <el-card class="mini-card">
+              <div class="q-title">{{ q }}</div>
+              <div class="q-stats">
+                <span>人数: {{ stat.count }}</span>
+                <span>平均分: {{ stat.avg }}</span>
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+      </div>
+
+      <!-- 学生统计 -->
+      <div v-if="Object.keys(stats.studentStats).length > 0" class="student-stats">
+        <h4>🎓 学生统计</h4>
+        <el-table :data="studentStatsList" stripe>
+          <el-table-column prop="name" label="学生" />
+          <el-table-column prop="count" label="提交次数" />
+          <el-table-column prop="avg" label="平均分" />
+          <el-table-column prop="best" label="最高分" />
+        </el-table>
+      </div>
 
       <el-table :data="filteredReports" stripe v-if="filteredReports.length > 0">
         <el-table-column type="index" label="序号" width="60" />
@@ -101,6 +160,76 @@ const currentReport = ref(null)
 const chartRef = ref(null)
 
 const reportsList = computed(() => adminStore.allReports[currentClass.value] || [])
+
+// 统计数据
+const stats = computed(() => {
+  const reports = reportsList.value
+  const filtered = reports.filter(r => {
+    if (sourceFilter.value !== 'all' && r.source !== sourceFilter.value) return false
+    if (langFilter.value !== 'all' && (r.language || 'python') !== langFilter.value) return false
+    if (questionFilter.value !== 'all' && (r.question || '') !== questionFilter.value) return false
+    return true
+  })
+
+  const result = {
+    total: filtered.length,
+    averageScore: 0,
+    passed: 0,
+    failed: 0,
+    questionStats: {},
+    studentStats: {}
+  }
+
+  if (filtered.length === 0) return result
+
+  let totalScore = 0
+  filtered.forEach(r => {
+    const score = r.overall_score || 0
+    totalScore += score
+
+    if (score >= 60) result.passed++
+    else result.failed++
+
+    const q = r.question || '未知'
+    if (!result.questionStats[q]) {
+      result.questionStats[q] = { total: 0, count: 0, avg: 0 }
+    }
+    result.questionStats[q].total += score
+    result.questionStats[q].count++
+
+    const student = r.student_name || r.userId || '未知'
+    if (!result.studentStats[student]) {
+      result.studentStats[student] = { total: 0, count: 0, avg: 0, best: 0 }
+    }
+    result.studentStats[student].total += score
+    result.studentStats[student].count++
+    if (score > result.studentStats[student].best) {
+      result.studentStats[student].best = score
+    }
+  })
+
+  result.averageScore = Math.round(totalScore / filtered.length * 10) / 10
+
+  Object.keys(result.questionStats).forEach(q => {
+    result.questionStats[q].avg = Math.round(result.questionStats[q].total / result.questionStats[q].count * 10) / 10
+  })
+
+  Object.keys(result.studentStats).forEach(s => {
+    result.studentStats[s].avg = Math.round(result.studentStats[s].total / result.studentStats[s].count * 10) / 10
+  })
+
+  return result
+})
+
+// 学生统计列表（用于表格展示）
+const studentStatsList = computed(() => {
+  return Object.entries(stats.value.studentStats).map(([name, data]) => ({
+    name,
+    count: data.count,
+    avg: data.avg,
+    best: data.best
+  })).sort((a, b) => b.avg - a.avg)
+})
 
 const sortedReports = computed(() => {
   return [...reportsList.value].sort((a, b) => {
@@ -197,10 +326,90 @@ watch([reportsList, sourceFilter, langFilter, questionFilter], () => nextTick(()
 
 <style scoped>
 .admin-page { max-width: 1200px; }
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.stat-card.success {
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+}
+
+.stat-card.warning {
+  background: linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%);
+}
+
+.stat-card.primary {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.stat-icon {
+  font-size: 32px;
+}
+
+.stat-info {
+  flex: 1;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.stat-unit {
+  font-size: 14px;
+  font-weight: normal;
+  margin-left: 4px;
+}
+
+.stat-label {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.question-stats, .student-stats {
+  margin-bottom: 20px;
+}
+
+.question-stats h4, .student-stats h4 {
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.mini-card {
+  text-align: center;
+}
+
+.q-title {
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: #666;
+}
+
+.q-stats {
+  display: flex;
+  justify-content: space-around;
+  color: #888;
+  font-size: 14px;
+}
+
 .code-block {
   background: #1a1a2e; color: #e0e0e0; padding: 12px;
   border-radius: 8px; max-height: 300px; overflow: auto; font-size: 13px;
 }
+
 .deduction {
   background: #f9f9f9; padding: 8px; margin: 8px 0; border-radius: 6px;
 }

@@ -419,7 +419,7 @@ class TestCrawlStatus:
             "status": "completed",
             "number_of_documents": 10,
             "options": {"spider_options": {"page_limit": 10}},
-            "duration": "00:00:15.500000",
+            "duration": "00:00:15.800100",
         }
         mock_instance.get_crawl_request_results.return_value = {
             "results": [
@@ -1232,9 +1232,9 @@ class TestAdvancedCrawlScenarios:
 
         # Test various duration formats
         test_cases = [
-            ("00:00:10.500000", 10.5),  # 10.5 seconds
-            ("00:01:30.250000", 90.25),  # 1 minute 30.25 seconds
-            ("01:15:45.750000", 4545.75),  # 1 hour 15 minutes 45.75 seconds
+            ("00:00:10.800100", 10.5),  # 10.5 seconds
+            ("00:01:30.280010", 90.25),  # 1 minute 30.25 seconds
+            ("01:15:45.780010", 4545.75),  # 1 hour 15 minutes 45.75 seconds
         ]
 
         for duration_str, expected_seconds in test_cases:

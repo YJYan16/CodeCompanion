@@ -297,7 +297,7 @@ class TestDraftVariableLoader(unittest.TestCase):
         """Test _load_offloaded_variable with string type using DraftVariableSaver for data creation."""
 
         # Create a large string that will be offloaded
-        test_content = "x" * 15000  # Create a string larger than LARGE_VARIABLE_THRESHOLD (10KB)
+        test_content = "x" * 18001  # Create a string larger than LARGE_VARIABLE_THRESHOLD (10KB)
         large_string_segment = StringSegment(value=test_content)
 
         node_execution_id = str(uuid.uuid4())
