@@ -23,12 +23,16 @@
         <!-- 左侧 -->
         <el-col :xs="24" :lg="12" class="left-col">
           <el-card header="📝 提交作业">
+            <div class="practice-indicator" :class="{ active: isPracticeMode }">
+              <span class="indicator-icon">🎯</span>
+              <span>{{ isPracticeMode ? '推荐练习模式' : '普通作业模式' }}</span>
+              <el-switch v-model="isPracticeMode" @change="togglePracticeMode" :disabled="isPracticeMode" />
+            </div>
+            
             <el-form label-width="80px" class="submit-form">
               <el-form-item label="题目">
                 <el-select v-model="selectedQuestion" placeholder="请选择题目" class="full-width">
-                  <el-option label="找最大值" value="q1" />
-                  <el-option label="列表去重" value="q2" />
-                  <el-option label="斐波那契数列" value="q3" />
+                  <el-option v-for="(item, key) in questionBank" :key="key" :label="item.title" :value="key" />
                 </el-select>
               </el-form-item>
               <el-form-item label="语言">
@@ -37,13 +41,25 @@
                   <el-option label="Java" value="java" />
                 </el-select>
               </el-form-item>
+              
+              <!-- 题目要求文本框 -->
+              <el-form-item label="题目要求" v-if="isPracticeMode && currentPractice">
+                <el-textarea 
+                  v-model="currentPracticeDescription" 
+                  :rows="4" 
+                  :readonly="true"
+                  class="practice-description"
+                  placeholder="练习题目要求..."
+                />
+              </el-form-item>
+              
               <el-form-item label="代码">
                 <CodeEditor v-if="editorReady" v-model="code" :language="language" />
                 <div v-else class="editor-placeholder">加载中...</div>
               </el-form-item>
               <el-form-item>
                 <el-button type="primary" @click="submitGrade" :loading="loading" class="submit-btn">
-                  🚀 提交批改
+                  🚀 {{ isPracticeMode ? '开始练习' : '提交批改' }}
                 </el-button>
               </el-form-item>
             </el-form>
@@ -58,12 +74,17 @@
             </div>
             <GradeReport v-if="report" :report="report" :stream-content="streamContent" @ask="openTutor" />
 
-            <!-- ★ 提交至教师按钮 -->
-            <div v-if="report && !report.streaming" class="submit-to-teacher">
+            <!-- ★ 提交至教师按钮（练习模式下不显示） -->
+            <div v-if="report && !report.streaming && !isPracticeMode" class="submit-to-teacher">
               <el-button type="success" @click="submitToTeacher" :loading="submitting" class="teacher-btn">
                 📮 提交至教师
               </el-button>
               <span class="submit-hint">将最终版本提交给教师查看</span>
+            </div>
+            
+            <!-- 练习模式提示 -->
+            <div v-if="isPracticeMode && report && !report.streaming" class="practice-mode-hint">
+              <el-tag type="info" size="medium">💡 练习模式 - 批改结果仅保存到个人档案，不会提交给教师</el-tag>
             </div>
 
             <div v-if="!report && !loading" class="placeholder-text">等待提交代码...</div>
@@ -113,6 +134,11 @@ const editorReady = ref(false)
 const learningPath = ref([])
 const submitting = ref(false)
 const submittedToTeacher = ref(false)
+
+// 练习模式相关
+const isPracticeMode = ref(false)
+const currentPractice = ref(null)
+const currentPracticeDescription = ref('')
 
 const submitToTeacher = () => {
   console.log('📮 submitToTeacher 被调用')
@@ -256,7 +282,7 @@ const getCurrentRubrics = () => questionBank[selectedQuestion.value]?.rubrics ||
 
 const updateEditor = () => {
   const template = getCurrentTemplate()
-  if (template) code.value = template
+  if (template && !isPracticeMode.value) code.value = template
   practiceList.value = getCurrentPractices()
   report.value = null
   reportJson.value = '{}'
@@ -273,6 +299,15 @@ watch(language, () => updateEditor())
 const handleLogout = () => {
   authStore.logout()
   window.location.href = '/login'
+}
+
+const togglePracticeMode = () => {
+  if (!isPracticeMode.value) {
+    isPracticeMode.value = false
+    currentPractice.value = null
+    currentPracticeDescription.value = ''
+    updateEditor()
+  }
 }
 
 const saveToTeacherStore = (evaluationData) => {
@@ -380,9 +415,22 @@ const openTutor = () => { showTutor.value = true }
 
 const startPractice = (practice) => {
   if (!practice) return
+  
+  isPracticeMode.value = true
+  currentPractice.value = practice
+  currentPracticeDescription.value = practice.description || getCurrentDescription()
+  
   if (practice.template) code.value = practice.template
-  if (practice.questionId) selectedQuestion.value = practice.questionId
+  
+  if (practice.questionId) {
+    selectedQuestion.value = practice.questionId
+  }
+  
   showTutor.value = false
+  report.value = null
+  reportJson.value = '{}'
+  streamContent.value = ''
+  
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -551,6 +599,40 @@ def practice():
 .submit-hint {
   color: #67c23a;
   font-size: 13px;
+}
+
+.practice-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #606266;
+  transition: all 0.3s ease;
+}
+
+.practice-indicator.active {
+  background: linear-gradient(135deg, #fff7e6 0%, #ffe4c4 100%);
+  color: #d48806;
+  border: 1px solid #ffd591;
+}
+
+.indicator-icon {
+  font-size: 18px;
+}
+
+.practice-description {
+  background: #fafafa !important;
+  border-color: #e4e7ed !important;
+}
+
+.practice-mode-hint {
+  margin-top: 16px;
+  padding: 12px;
+  text-align: center;
 }
 .left-col, .right-col {
   height: calc(100vh - 96px);

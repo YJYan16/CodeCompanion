@@ -6,12 +6,20 @@ import sys
 import os
 import json
 import httpx
+import hashlib
 from pydantic import BaseModel
+
+# 性能优化：使用 orjson
+try:
+    import orjson as json_lib
+except ImportError:
+    import json as json_lib
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 from zhipuai import ZhipuAI
 from config.settings import get_settings
 from backend.app.core.agents import Coordinator
+from backend.app.core.cache_service import get_cache
 
 settings = get_settings()
 coordinator = Coordinator(settings.zhipu_api_key)
@@ -20,8 +28,19 @@ client = ZhipuAI(api_key=settings.zhipu_api_key)
 USE_LOCAL_MODEL = settings.use_local_model
 LOCAL_MODEL_NAME = settings.local_model_name
 LOCAL_MODEL_URL = settings.local_model_url
+CACHE_TTL = settings.redis_ttl
 
 router = APIRouter()
+
+
+def hash_code_content(code: str) -> str:
+    """快速计算代码内容的哈希值"""
+    return hashlib.md5(code.encode('utf-8')).hexdigest()
+
+
+def make_grade_cache_key(code: str, question: str, rubrics: str) -> str:
+    """生成批改结果的缓存键"""
+    return f"grade:{hash_code_content(code)}:{hash_code_content(question)}:{hash_code_content(rubrics)}"
 
 
 async def call_local_model(prompt: str) -> str:
@@ -46,7 +65,22 @@ async def call_local_model(prompt: str) -> str:
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    return HealthResponse(status="ok", version="2.0.0")
+    return HealthResponse(status="ok", version="2.1.0")
+
+
+@router.get("/cache/stats")
+async def cache_stats():
+    """获取缓存统计信息"""
+    cache = get_cache()
+    return cache.get_stats()
+
+
+@router.post("/cache/clear")
+async def clear_cache():
+    """清空所有缓存"""
+    cache = get_cache()
+    cache.clear()
+    return {"status": "ok", "message": "缓存已清空"}
 
 
 @router.get("/model/status")
@@ -55,7 +89,8 @@ async def model_status():
         "use_local": USE_LOCAL_MODEL,
         "local_model": LOCAL_MODEL_NAME,
         "cloud_model": "glm-4-flash",
-        "mode": "本地模型" if USE_LOCAL_MODEL else "云端模型"
+        "mode": "本地模型" if USE_LOCAL_MODEL else "云端模型",
+        "cache_enabled": settings.redis_enabled
     }
 
 
@@ -76,6 +111,16 @@ async def toggle_model(request: ModelToggleRequest):
 @router.post("/grade", response_model=GradeResponse)
 async def grade_code(request: GradeRequest):
     try:
+        # 尝试从缓存获取
+        cache = get_cache()
+        cache_key = make_grade_cache_key(request.code, request.question, request.rubrics)
+        cached_result = cache.get(cache_key)
+        
+        if cached_result is not None:
+            print(f"✅ 命中缓存，直接返回")
+            return GradeResponse(**cached_result)
+        
+        # 未命中缓存，执行批改
         result = coordinator.grade_workflow(
             request.code, 
             request.question, 
@@ -83,7 +128,8 @@ async def grade_code(request: GradeRequest):
         )
         evaluation = result["evaluation"]
         diagnosis = result.get("diagnosis", {})
-        return GradeResponse(
+        
+        response = GradeResponse(
             overall_score=evaluation.get("overall_score", 0),
             summary=evaluation.get("summary", ""),
             deductions=[
@@ -100,6 +146,11 @@ async def grade_code(request: GradeRequest):
             weak_knowledge_points=diagnosis.get("weak_knowledge_points", []),
             ai_generated=True
         )
+        
+        # 存入缓存
+        cache.set(cache_key, response.model_dump(), ttl=CACHE_TTL)
+        
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -109,13 +160,36 @@ async def grade_code_stream(request: GradeRequest):
     """流式批改代码"""
     async def generate():
         try:
+            # 先检查缓存（非流式结果）
+            cache = get_cache()
+            cache_key = make_grade_cache_key(request.code, request.question, request.rubrics)
+            cached_result = cache.get(cache_key)
+            
+            if cached_result is not None:
+                print(f"✅ 命中缓存")
+                yield f"data: {json_lib.dumps({'type': 'diagnosis', 'content': '从缓存加载数据中...'}, ensure_ascii=False)}\n\n"
+                
+                # 输出评语
+                for char in cached_result.get("summary", ""):
+                    yield f"data: {json_lib.dumps({'type': 'review', 'content': char}, ensure_ascii=False)}\n\n"
+                
+                # 输出结果
+                yield f"data: {json_lib.dumps({'type': 'result', 'data': {
+                    'overall_score': cached_result['overall_score'],
+                    'summary': cached_result['summary'],
+                    'deductions': cached_result['deductions']
+                }}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            
+            # 未命中缓存，正常执行
             diagnosis = coordinator.diagnostician.diagnose(
                 code=request.code, 
                 question=request.question
             )
             
             diag_msg = f"🔍 诊断完成：{diagnosis.get('summary', '')}"
-            yield f"data: {json.dumps({'type': 'diagnosis', 'content': diag_msg}, ensure_ascii=False)}\n\n"
+            yield f"data: {json_lib.dumps({'type': 'diagnosis', 'content': diag_msg}, ensure_ascii=False)}\n\n"
             
             lang_hint = ""
             if request.language == "java":
@@ -143,7 +217,7 @@ async def grade_code_stream(request: GradeRequest):
             if USE_LOCAL_MODEL:
                 review_text = await call_local_model(f"{review_system}\n\n{review_prompt}")
                 for char in review_text:
-                    yield f"data: {json.dumps({'type': 'review', 'content': char}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json_lib.dumps({'type': 'review', 'content': char}, ensure_ascii=False)}\n\n"
             else:
                 response1 = client.chat.completions.create(
                     model="glm-4-flash",
@@ -158,7 +232,7 @@ async def grade_code_stream(request: GradeRequest):
                     content = chunk.choices[0].delta.content
                     if content is not None:
                         review_text += content
-                        yield f"data: {json.dumps({'type': 'review', 'content': content}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json_lib.dumps({'type': 'review', 'content': content}, ensure_ascii=False)}\n\n"
 
             score_prompt = f"""请根据以下信息生成评分JSON。
 
@@ -204,19 +278,27 @@ async def grade_code_stream(request: GradeRequest):
             result_text = result_text.strip()
             
             try:
-                score_data = json.loads(result_text)
+                score_data = json_lib.loads(result_text)
                 score_data["summary"] = review_text
-                yield f"data: {json.dumps({'type': 'result', 'data': score_data}, ensure_ascii=False)}\n\n"
+                
+                # 缓存结果
+                cache.set(cache_key, {
+                    "overall_score": score_data["overall_score"],
+                    "summary": review_text,
+                    "deductions": score_data["deductions"]
+                }, ttl=CACHE_TTL)
+                
+                yield f"data: {json_lib.dumps({'type': 'result', 'data': score_data}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 print(f"❌ JSON解析失败: {e}")
-                yield f"data: {json.dumps({'type': 'result', 'data': {'overall_score': 0, 'summary': review_text, 'deductions': []}}, ensure_ascii=False)}\n\n"
+                yield f"data: {json_lib.dumps({'type': 'result', 'data': {'overall_score': 0, 'summary': review_text, 'deductions': []}}, ensure_ascii=False)}\n\n"
             
             yield "data: [DONE]\n\n"
             
         except Exception as e:
             import traceback
             traceback.print_exc()
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json_lib.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -256,7 +338,7 @@ async def tutor_chat_stream(request: TutorRequest):
                 prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
                 answer = await call_local_model(prompt)
                 for char in answer:
-                    yield f"data: {json.dumps({'content': char}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json_lib.dumps({'content': char}, ensure_ascii=False)}\n\n"
             else:
                 response = client.chat.completions.create(
                     model="glm-4-flash",
@@ -267,12 +349,12 @@ async def tutor_chat_stream(request: TutorRequest):
                 for chunk in response:
                     content = chunk.choices[0].delta.content
                     if content is not None:
-                        yield f"data: {json.dumps({'content': content}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json_lib.dumps({'content': content}, ensure_ascii=False)}\n\n"
             
             yield "data: [DONE]\n\n"
             
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json_lib.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -290,6 +372,13 @@ async def generate_practice(request: PracticeRequest):
     if not weak_points:
         return {"practices": []}
     
+    # 尝试从缓存获取
+    cache = get_cache()
+    cache_key = f"practice:{hash_code_content(str(weak_points))}:{language}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    
     practices = []
     for i, wp in enumerate(weak_points[:2]):
         if language == "java":
@@ -305,7 +394,9 @@ async def generate_practice(request: PracticeRequest):
                 "template": f"# 练习：{wp}\ndef solution():\n    # TODO: 解决{wp}问题\n    pass"
             })
     
-    return {"practices": practices}
+    result = {"practices": practices}
+    cache.set(cache_key, result, ttl=CACHE_TTL)
+    return result
 
 
 class SandboxRequest(BaseModel):
@@ -410,9 +501,16 @@ class LearningPathRequest(BaseModel):
 
 @router.post("/learning-path")
 async def generate_learning_path(request: LearningPathRequest):
-    """根据薄弱知识点生成个性化学习路径"""
+    """根据薄弱知识点生成个性化学习路径（已缓存）"""
     weak_points = request.weak_points
     language = request.language
+    
+    # 尝试从缓存获取
+    cache = get_cache()
+    cache_key = f"learning_path:{hash_code_content(str(weak_points))}:{language}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     
     # 知识图谱中的学习路径映射
     knowledge_map = {
@@ -478,8 +576,12 @@ async def generate_learning_path(request: LearningPathRequest):
     if not all_steps:
         all_steps = default_path
     
-    return {
+    result = {
         "weak_points": weak_points,
         "path": all_steps,
         "total_steps": len(all_steps)
     }
+    
+    # 缓存结果
+    cache.set(cache_key, result, ttl=CACHE_TTL)
+    return result
