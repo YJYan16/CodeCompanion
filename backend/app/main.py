@@ -64,6 +64,26 @@ app.include_router(draft_router, prefix="/api")
 app.include_router(ws_router)
 
 
+# ---------- 前端 SPA 静态文件服务（无需 Node.js） ----------
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
+if os.path.isdir(FRONTEND_DIST):
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+
+    _assets = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.isdir(_assets):
+        app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        """SPA 兜底：非 API 路径返回 index.html，由 Vue Router 处理"""
+        file_path = os.path.join(FRONTEND_DIST, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
+    logger.info("前端 SPA 模式已启用（dist 目录）")
+
 @app.on_event("startup")
 async def startup_event():
     try:

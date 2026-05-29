@@ -45,9 +45,13 @@ if not exist "env" (
 
 :: 设置环境变量
 set HF_ENDPOINT=https://hf-mirror.com
+
 if "%ZHIPU_API_KEY%"=="" (
-    echo [!] 未设置 ZHIPU_API_KEY，请手动输入或设置环境变量
-    set /p ZHIPU_API_KEY="请输入智谱 API Key (回车跳过): "
+    echo.
+    echo [!] 未设置 ZHIPU_API_KEY 环境变量
+    echo     批改/辅导功能需要智谱AI密钥，可从 https://open.bigmodel.cn/ 获取
+    set /p ZHIPU_API_KEY="请输入 API Key（回车跳过，批改功能将不可用）: "
+    echo.
 )
 
 :: 启动后端
@@ -66,6 +70,7 @@ start "前端-码途智伴" cmd /c "cd /d %BASE_DIR%frontend && npm run dev"
 echo [*] 打开浏览器...
 timeout /t 8 /nobreak >nul
 start http://localhost:5173
+start http://localhost:5173
 
 echo.
 echo ╔══════════════════════════════════════════╗
@@ -79,8 +84,8 @@ echo.
 echo 按任意键停止所有服务...
 pause >nul
 
-:: 停止服务
-taskkill /FI "WINDOWTITLE eq 后端-码途智伴*" /T /F >nul 2>&1
-taskkill /FI "WINDOWTITLE eq 前端-码途智伴*" /T /F >nul 2>&1
+:: 停止服务（按进程名）
+taskkill /F /IM python.exe >nul 2>&1
+taskkill /F /IM node.exe >nul 2>&1
 echo 已停止所有服务
 pause

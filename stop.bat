@@ -1,1 +1,0 @@
-@echo offchcp 65001 >nulecho ÕýÔÚÍ£Ö¹ÂëÍ¾ÖÇ°éËùÓÐ·þÎñ...taskkill /FI "WINDOWTITLE eq ºó¶Ë-ÂëÍ¾ÖÇ°é*" /T /F >nul 2>&1taskkill /FI "WINDOWTITLE eq Ç°¶Ë-ÂëÍ¾ÖÇ°é*" /T /F >nul 2>&1echo ÒÑÍ£Ö¹pause
