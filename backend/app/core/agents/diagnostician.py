@@ -5,28 +5,40 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 from cachetools import TTLCache
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-from config.settings import get_settings
-from src.knowledge.graph_builder import KnowledgeGraph
-from src.languages import LANGUAGE_PARSERS
+current_dir = os.path.dirname(os.path.abspath(__file__))
+backend_dir = os.path.dirname(os.path.dirname(current_dir))
+
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+if os.path.dirname(backend_dir) not in sys.path:
+    sys.path.insert(0, os.path.dirname(backend_dir))
+
+try:
+    from config.settings import get_settings
+    from app.core.knowledge.graph_builder import KnowledgeGraph
+    from app.core.languages import LANGUAGE_PARSERS
+except ImportError:
+    from config.settings import get_settings
+    from backend.app.core.knowledge.graph_builder import KnowledgeGraph
+    from backend.app.core.languages import LANGUAGE_PARSERS
 
 settings = get_settings()
 
+
 class Diagnostician:
     def __init__(self):
-        print("🔍 诊断智能体初始化...")
+        print("诊断智能体初始化...")
         self.embedding_model = SentenceTransformer('BAAI/bge-large-zh-v1.5')
-        kb_path = os.path.join(os.path.dirname(__file__), "..", "..", settings.chromadb_path)
+        kb_path = os.path.join(backend_dir, settings.chromadb_path)
         self.chroma_client = chromadb.PersistentClient(path=kb_path)
         self.error_collection = self.chroma_client.get_or_create_collection("python_errors")
         self.example_collection = self.chroma_client.get_or_create_collection("python_examples")
         self.kg = KnowledgeGraph()
         
-        # 内存缓存：向量查询结果缓存
         self.knowledge_cache = TTLCache(maxsize=1000, ttl=3600)
         self.kg_cache = TTLCache(maxsize=500, ttl=7200)
         
-        print("✅ 诊断智能体就绪（含知识图谱和缓存）")
+        print("诊断智能体就绪（含知识图谱和缓存）")
 
     def static_analysis(self, code: str) -> dict:
         issues = []
@@ -37,8 +49,6 @@ class Diagnostician:
         return {"static_issues": issues}
 
     def knowledge_search(self, query_text: str, n_results: int = 3) -> dict:
-        """在知识库中搜索相关知识（已缓存）"""
-        # 生成缓存键
         cache_key = f"knowledge:{hashlib.md5(query_text.encode('utf-8')).hexdigest()}:{n_results}"
         
         if cache_key in self.knowledge_cache:
@@ -79,13 +89,10 @@ class Diagnostician:
             })
 
         result = {"errors": errors, "examples": examples}
-        
-        # 缓存结果
         self.knowledge_cache[cache_key] = result
         return result
 
     def _extract_error_keywords(self, code: str, static_issues: list) -> list:
-        """从静态分析结果和代码中提取错误关键词"""
         keywords = []
         
         for issue in static_issues:
@@ -108,7 +115,6 @@ class Diagnostician:
         return list(set(keywords))
 
     def diagnose(self, code: str, question: str = "", language: str = "python") -> dict:
-        # 先检查是否有缓存的诊断结果
         diag_cache_key = f"diagnose:{hashlib.md5((code + question + language).encode('utf-8')).hexdigest()}"
         if diag_cache_key in self.kg_cache:
             return self.kg_cache[diag_cache_key]
@@ -153,6 +159,5 @@ class Diagnostician:
             "summary": summary
         }
         
-        # 缓存诊断结果
         self.kg_cache[diag_cache_key] = result
         return result

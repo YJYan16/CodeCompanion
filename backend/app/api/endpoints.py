@@ -174,11 +174,15 @@ async def grade_code_stream(request: GradeRequest):
                     yield f"data: {json_lib.dumps({'type': 'review', 'content': char}, ensure_ascii=False)}\n\n"
                 
                 # 输出结果
-                yield f"data: {json_lib.dumps({'type': 'result', 'data': {
-                    'overall_score': cached_result['overall_score'],
-                    'summary': cached_result['summary'],
-                    'deductions': cached_result['deductions']
-                }}, ensure_ascii=False)}\n\n"
+                result_data = {
+                    'type': 'result', 
+                    'data': {
+                        'overall_score': cached_result['overall_score'],
+                        'summary': cached_result['summary'],
+                        'deductions': cached_result['deductions']
+                    }
+                }
+                yield f"data: {json_lib.dumps(result_data, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
             
@@ -288,17 +292,20 @@ async def grade_code_stream(request: GradeRequest):
                     "deductions": score_data["deductions"]
                 }, ttl=CACHE_TTL)
                 
-                yield f"data: {json_lib.dumps({'type': 'result', 'data': score_data}, ensure_ascii=False)}\n\n"
+                result_data = {'type': 'result', 'data': score_data}
+                yield f"data: {json_lib.dumps(result_data, ensure_ascii=False)}\n\n"
             except Exception as e:
                 print(f"❌ JSON解析失败: {e}")
-                yield f"data: {json_lib.dumps({'type': 'result', 'data': {'overall_score': 0, 'summary': review_text, 'deductions': []}}, ensure_ascii=False)}\n\n"
+                error_result = {'type': 'result', 'data': {'overall_score': 0, 'summary': review_text, 'deductions': []}}
+                yield f"data: {json_lib.dumps(error_result, ensure_ascii=False)}\n\n"
             
             yield "data: [DONE]\n\n"
             
         except Exception as e:
             import traceback
             traceback.print_exc()
-            yield f"data: {json_lib.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+            error_data = {'type': 'error', 'content': str(e)}
+            yield f"data: {json_lib.dumps(error_data, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")
 
