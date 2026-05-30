@@ -1,6 +1,0 @@
-services:
-  openjdk:
-    image: eclipse-temurin:17-jdk
-    profiles: ["sandbox"]
-    command: ["sleep", "infinity"]
-    network_mode: none
