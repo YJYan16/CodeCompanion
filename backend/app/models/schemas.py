@@ -102,6 +102,7 @@ class LoginResponse(BaseModel):
 
 class SaveGradeRequest(BaseModel):
     user_id: int
+    user_name: str = ""
     question_id: str
     code: str
     language: str = "python"

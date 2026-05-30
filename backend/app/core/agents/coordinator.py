@@ -24,7 +24,7 @@ class Coordinator:
         self.diagnostician = Diagnostician()
         self.tutor = Tutor(api_key or settings.zhipu_api_key)
     
-    def grade_workflow(self, code: str, question: str, rubrics: str) -> dict:
+    def grade_workflow(self, code: str, question: str, rubrics: str, language: str = "python") -> dict:
         """执行完整的批改工作流"""
         diagnosis = self.diagnostician.diagnose(code, question)
         
@@ -32,7 +32,8 @@ class Coordinator:
             code=code,
             question=question,
             rubrics=rubrics,
-            diagnosis=diagnosis
+            diagnosis=diagnosis,
+            language=language
         )
         
         final_report = self.tutor.generate_report(

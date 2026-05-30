@@ -78,45 +78,77 @@
         </el-row>
       </div>
 
-      <!-- 学生统计 -->
-      <div v-if="Object.keys(stats.studentStats).length > 0" class="student-stats">
-        <h4>🎓 学生统计</h4>
-        <el-table :data="studentStatsList" stripe>
-          <el-table-column prop="name" label="学生" />
-          <el-table-column prop="count" label="提交次数" />
-          <el-table-column prop="avg" label="平均分" />
-          <el-table-column prop="best" label="最高分" />
-        </el-table>
-      </div>
+      <!-- 成绩表（可折叠） -->
+      <el-collapse v-model="gradeTableExpanded" accordion>
+        <el-collapse-item :title="`📝 成绩列表 (${filteredReports.length}条)`" name="grade-table">
+          <div v-if="filteredReports.length > 0">
+            <el-table :data="pagedReports" stripe>
+              <el-table-column type="index" label="序号" width="60" />
+              <el-table-column prop="student_name" label="学生" width="100" />
+              <el-table-column prop="question" label="题目" width="120" show-overflow-tooltip />
+              <el-table-column label="语言" width="70">
+                <template #default="{ row }">
+                  <el-tag :type="row.language === 'java' ? 'warning' : 'primary'" size="small">
+                    {{ row.language || 'python' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="来源" width="80">
+                <template #default="{ row }">
+                  <el-tag :type="row.source === 'batch' ? 'warning' : 'success'" size="small">
+                    {{ row.source === 'batch' ? '批量' : '提交' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="overall_score" label="总分" width="70" sortable />
+              <el-table-column prop="summary" label="评语" show-overflow-tooltip />
+              <el-table-column label="操作" width="150">
+                <template #default="{ row }">
+                  <el-button size="small" @click="showDetail(row)">详情</el-button>
+                  <el-button size="small" type="danger" @click="confirmDelete(row)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            
+            <!-- 分页 -->
+            <el-pagination
+              @size-change="handleSizeChange"
+              @current-change="handleCurrentChange"
+              :current-page="currentPage"
+              :page-sizes="[10, 20, 50, 100]"
+              :page-size="pageSize"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="filteredReports.length"
+              style="margin-top: 20px; text-align: right;"
+            />
+          </div>
+          <el-empty v-else description="暂无批改记录" />
+        </el-collapse-item>
+      </el-collapse>
 
-      <el-table :data="filteredReports" stripe v-if="filteredReports.length > 0">
-        <el-table-column type="index" label="序号" width="60" />
-        <el-table-column prop="student_name" label="学生" width="100" />
-        <el-table-column prop="question" label="题目" width="120" show-overflow-tooltip />
-        <el-table-column label="语言" width="70">
-          <template #default="{ row }">
-            <el-tag :type="row.language === 'java' ? 'warning' : 'primary'" size="small">
-              {{ row.language || 'python' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="来源" width="80">
-          <template #default="{ row }">
-            <el-tag :type="row.source === 'batch' ? 'warning' : 'success'" size="small">
-              {{ row.source === 'batch' ? '批量' : '提交' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="overall_score" label="总分" width="70" sortable />
-        <el-table-column prop="summary" label="评语" show-overflow-tooltip />
-        <el-table-column label="操作" width="80">
-          <template #default="{ row }">
-            <el-button size="small" @click="showDetail(row)">详情</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <el-empty v-if="filteredReports.length === 0" description="暂无批改记录，请点击刷新按钮" />
+      <!-- 学生统计（折叠，放在成绩表之下） -->
+      <el-collapse v-model="studentStatsExpanded" accordion>
+        <el-collapse-item :title="`🎓 学生统计 (${ studentStatsList.length }人)`" name="student-stats">
+          <el-table :data="pagedStudentStats" stripe>
+            <el-table-column prop="name" label="学生" />
+            <el-table-column prop="count" label="提交次数" />
+            <el-table-column prop="avg" label="平均分" />
+            <el-table-column prop="best" label="最高分" />
+          </el-table>
+          
+          <!-- 学生统计分页 -->
+          <el-pagination
+            @size-change="handleStudentSizeChange"
+            @current-change="handleStudentCurrentChange"
+            :current-page="studentCurrentPage"
+            :page-sizes="[10, 20, 50]"
+            :page-size="studentPageSize"
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="studentStatsList.length"
+            style="margin-top: 20px; text-align: right;"
+          />
+        </el-collapse-item>
+      </el-collapse>
 
       <div v-if="filteredReports.length > 0" style="margin-top:20px">
         <div ref="chartRef" style="width:100%;height:300px"></div>
@@ -158,6 +190,18 @@ const questionFilter = ref('all')
 const showDialog = ref(false)
 const currentReport = ref(null)
 const chartRef = ref(null)
+
+// 折叠状态
+const gradeTableExpanded = ref(['grade-table'])
+const studentStatsExpanded = ref([])
+
+// 分页状态 - 成绩表
+const currentPage = ref(1)
+const pageSize = ref(10)
+
+// 分页状态 - 学生统计
+const studentCurrentPage = ref(1)
+const studentPageSize = ref(10)
 
 const reportsList = computed(() => adminStore.allReports[currentClass.value] || [])
 
@@ -221,6 +265,33 @@ const stats = computed(() => {
   return result
 })
 
+const confirmDelete = async (row) => {
+  if (!confirm(`确定要删除【${row.student_name}】的成绩记录吗？`)) return
+  
+  // 1. 从后端数据库删除
+  if (row.id) {
+    try {
+      await fetch(`/api/grades/${row.id}`, { method: 'DELETE' })
+    } catch (e) {
+      console.error('后端删除失败:', e)
+    }
+  }
+  
+  // 2. 从本地 allReports 中删除
+  const cls = currentClass.value
+  const reports = adminStore.allReports[cls]
+  if (reports) {
+    const idx = reports.findIndex(r => 
+      (r.id && r.id === row.id) ||
+      (r.student_name === row.student_name && r.submitted_at === row.submitted_at)
+    )
+    if (idx >= 0) {
+      reports.splice(idx, 1)
+      adminStore.saveToStorage()
+    }
+  }
+}
+
 // 学生统计列表（用于表格展示）
 const studentStatsList = computed(() => {
   return Object.entries(stats.value.studentStats).map(([name, data]) => ({
@@ -230,6 +301,40 @@ const studentStatsList = computed(() => {
     best: data.best
   })).sort((a, b) => b.avg - a.avg)
 })
+
+// 分页数据 - 成绩表
+const pagedReports = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return filteredReports.value.slice(start, end)
+})
+
+// 分页数据 - 学生统计
+const pagedStudentStats = computed(() => {
+  const start = (studentCurrentPage.value - 1) * studentPageSize.value
+  const end = start + studentPageSize.value
+  return studentStatsList.value.slice(start, end)
+})
+
+// 分页方法 - 成绩表
+const handleSizeChange = (val) => {
+  pageSize.value = val
+  currentPage.value = 1
+}
+
+const handleCurrentChange = (val) => {
+  currentPage.value = val
+}
+
+// 分页方法 - 学生统计
+const handleStudentSizeChange = (val) => {
+  studentPageSize.value = val
+  studentCurrentPage.value = 1
+}
+
+const handleStudentCurrentChange = (val) => {
+  studentCurrentPage.value = val
+}
 
 const sortedReports = computed(() => {
   return [...reportsList.value].sort((a, b) => {

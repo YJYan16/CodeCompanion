@@ -52,6 +52,16 @@ class Evaluator:
         
         prompt += """
 请按照以下JSON格式返回评估结果（只返回JSON，不要其他内容）：
+评分规则：
+- 代码为空或只有注释/占位符: overall_score = 0
+- 存在严重语法错误导致无法运行: overall_score = 5-20
+- 语法正确但存在运行时错误: overall_score = 20-50
+- 语法和运行都正确，但功能不完整或有逻辑错误: overall_score = 50-75
+- 功能完整且正确，但代码可优化: overall_score = 75-90
+- 代码完美，符合所有要求: overall_score = 90-100
+
+请根据上述规则和评分标准，给出一个合理的分数。分数应该能反映代码的真实质量，而不是极端值。
+
 {
     "overall_score": 85,
     "deductions": [
@@ -170,7 +180,7 @@ class Evaluator:
             print(f"Ollama生成反馈失败: {str(e)}")
             return f"反馈生成过程中出现错误: {str(e)}"
     
-    def evaluate(self, code: str, question: str, rubrics: str, diagnosis: dict = None) -> dict:
+    def evaluate(self, code: str, question: str, rubrics: str, diagnosis: dict = None,  language: str = "python") -> dict:
         """
         评估代码质量
         

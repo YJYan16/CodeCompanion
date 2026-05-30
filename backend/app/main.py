@@ -34,7 +34,7 @@ from .api.draft_routes import router as draft_router
 from .api.websocket_routes import router as ws_router
 from .core.cache_service import init_cache
 from .core.database import SessionLocal
-from .core.init_db import init_db, add_initial_data
+from .core.init_db import init_db, add_initial_data, migrate_schema
 from .core.middleware.request_logging import RequestLoggingMiddleware
 from .core.utils.logging_config import get_logger, setup_logging
 
@@ -88,6 +88,7 @@ if os.path.isdir(FRONTEND_DIST):
 async def startup_event():
     try:
         init_db()
+        migrate_schema()
         db = SessionLocal()
         try:
             add_initial_data(db)

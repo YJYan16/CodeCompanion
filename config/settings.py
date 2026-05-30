@@ -2,11 +2,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 class Settings(BaseSettings):
-    zhipu_api_key: str = ""
+    zhipu_api_key: str = ""  # 请在.env文件中配置您的智谱AI API Key
     chromadb_path: str = "./kb_data"
     local_model_url: str = "http://localhost:11434/api/generate"
     local_model_name: str = "qwen2.5:7b"  # 使用Qwen2.5-7B量化模型
-    use_local_model: bool = False
+    use_local_model: bool = False  # 默认使用云端模型，避免本地模型配置问题
     
     # Redis配置
     redis_host: str = "localhost"

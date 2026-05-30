@@ -1,15 +1,16 @@
 """
-生成50份测试作业包 test50.zip
+生成50份Python/Java混合测试作业包
+题目：找最大值
 包含5种类型代码，每种10份
 """
 import zipfile
 import os
 
-# 5种代码模板
+# 5种代码模板（Python和Java混合）
 TEMPLATES = [
-    # 类型0：正确代码
-    '''
-def find_max(numbers):
+    # 类型0：正确代码（Python）
+    {
+        "code": '''def find_max(numbers):
     if not numbers:
         return None
     max_val = numbers[0]
@@ -17,19 +18,32 @@ def find_max(numbers):
         if num > max_val:
             max_val = num
     return max_val
+
+# 测试
+print(find_max([1, 5, 3, 9, 2]))
+print(find_max([-5, -2, -9]))
+print(find_max([]))
 ''',
-    # 类型1：初始化错误（max_num=0 导致全负数返回0）
-    '''
-def find_max(numbers):
+        "lang": "py"
+    },
+    # 类型1：初始化错误（Python）
+    {
+        "code": '''def find_max(numbers):
     max_num = 0
     for i in range(1, len(numbers)):
         if numbers[i] > max_num:
             max_num = numbers[i]
     return max_num
+
+# 测试
+print(find_max([1, 5, 3, 9, 2]))
+print(find_max([-5, -2, -9]))
 ''',
-    # 类型2：索引越界（numbers[i+1]）
-    '''
-def find_max(numbers):
+        "lang": "py"
+    },
+    # 类型2：索引越界（Python）
+    {
+        "code": '''def find_max(numbers):
     if not numbers:
         return None
     max_val = numbers[0]
@@ -37,48 +51,85 @@ def find_max(numbers):
         if numbers[i] > numbers[i+1]:
             max_val = numbers[i]
     return max_val
+
+# 测试
+print(find_max([3, 1, 4, 1, 5]))
 ''',
-    # 类型3：忘记return
-    '''
-def find_max(numbers):
+        "lang": "py"
+    },
+    # 类型3：忘记返回值（Python）
+    {
+        "code": '''def find_max(numbers):
     if not numbers:
         return None
     max_val = numbers[0]
     for num in numbers[1:]:
         if num > max_val:
             max_val = num
-    # 没有return
+    # 忘记写return了
+
+# 测试
+result = find_max([3, 7, 2, 9, 1])
+print(result)
 ''',
-    # 类型4：语法错误（缺少冒号）
-    '''
-def find_max(numbers)
-    max_num = 0
-    for num in numbers:
-        if num > max_num:
-            max_num = num
-    return max_num
-'''
+        "lang": "py"
+    },
+    # 类型4：正确代码（Java）
+    {
+        "code": '''public class Main {
+    public static int findMax(int[] numbers) {
+        if (numbers.length == 0) {
+            return -1;
+        }
+        int maxVal = numbers[0];
+        for (int i = 1; i < numbers.length; i++) {
+            if (numbers[i] > maxVal) {
+                maxVal = numbers[i];
+            }
+        }
+        return maxVal;
+    }
+
+    public static void main(String[] args) {
+        int[] test = {1, 5, 3, 9, 2};
+        System.out.println(findMax(test));
+    }
+}
+''',
+        "lang": "java"
+    },
 ]
 
-# 生成50个不重复的学生姓名
-names = [
-    "张三", "李四", "王五", "赵六", "孙七", "周八", "吴九", "郑十",
-    "钱一", "陈二", "刘三", "黄四", "林五", "杨六", "许七", "沈八",
-    "韩九", "冯十", "邓一", "曹二", "彭三", "肖四", "田五", "董六",
-    "袁七", "潘八", "于九", "蒋十", "蔡一", "余二",
-    "学生A", "学生B", "学生C", "学生D", "学生E", "学生F",
-    "学生G", "学生H", "学生I", "学生J", "学生K", "学生L",
-    "学生M", "学生N", "学生O", "学生P", "学生Q", "学生R",
-    "学生S", "学生T"
-][:50]  # 确保恰好50个
+# 学生名单（50个不重复姓名）
+STUDENTS = [
+    "张三", "李四", "王五", "赵六", "孙七",
+    "周八", "吴九", "郑十", "钱一", "陈二",
+    "刘三", "黄四", "林五", "杨六", "许七",
+    "沈八", "韩九", "冯十", "邓一", "曹二",
+    "彭三", "肖四", "田五", "董六", "袁七",
+    "潘八", "于九", "蒋十", "蔡一", "余二",
+    "杜三", "叶四", "程五", "苏六", "魏七",
+    "吕八", "丁九", "任十", "卢一", "钟二",
+    "廖三", "邱四", "夏五", "谭六", "严七",
+    "陆八", "汪九", "范十", "方一", "石二"
+][:50]
 
-# 生成zip
-output_path = os.path.join(os.path.dirname(__file__), "test50.zip")
-with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-    for i in range(50):
-        code_type = i % 5  # 5种类型循环
-        filename = f"{names[i]}.py"
-        zf.writestr(filename, TEMPLATES[code_type].strip())
+def main():
+    output_path = os.path.join(os.path.dirname(__file__), "test50_max_value.zip")
+    
+    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for i in range(50):
+            code_type = i % len(TEMPLATES)
+            template = TEMPLATES[code_type]
+            filename = f"{STUDENTS[i]}.{template['lang']}"
+            zf.writestr(filename, template['code'].strip())
+    
+    print(f"✅ 生成完成：{output_path}")
+    print(f"   包含50个文件：")
+    print(f"   - Python(.py)：40份（类型0-3各10份）")
+    print(f"   - Java(.java)：10份（类型4，10份）")
+    print(f"   5种错误类型：正确代码、初始化错误、索引越界、忘记返回值、Java正确代码")
+    print(f"\n📦 可直接上传到教师端「批量批改」进行测试")
 
-print(f"✅ 生成完成：{output_path}")
-print(f"   包含50个.py文件，5种错误类型各10份")
+if __name__ == "__main__":
+    main()

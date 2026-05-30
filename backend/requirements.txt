@@ -22,3 +22,5 @@ bcrypt
 pytest
 pytest-asyncio
 httpx
+RestrictedPython
+websockets

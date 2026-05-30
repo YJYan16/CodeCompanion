@@ -27,7 +27,7 @@
         <!-- 左侧 -->
         <el-col :xs="24" :lg="12" class="left-col">
           <el-card header="📝 提交作业">
-            <!-- ★ 离线模式指示器 -->
+            <!-- 离线模式指示器 -->
             <div class="offline-indicator" :class="{ active: offlineMode }">
               <span class="indicator-icon">📴</span>
               <span>{{ offlineMode ? '离线模式' : '在线模式' }}</span>
@@ -44,14 +44,14 @@
               </el-tooltip>
             </div>
             
-            <!-- ★ 推荐练习模式指示器 -->
+            <!-- 推荐练习模式指示器 -->
             <div class="practice-indicator" :class="{ active: isPracticeMode }">
               <span class="indicator-icon">🎯</span>
               <span>{{ isPracticeMode ? '推荐练习模式' : '普通作业模式' }}</span>
-              <el-switch v-model="isPracticeMode" @change="togglePracticeMode" />
+              <el-switch :model-value="isPracticeMode" @update:model-value="togglePracticeMode" />
             </div>
             
-            <!-- ★ 练习模式内容区域（显示在标注之下） -->
+            <!-- 练习模式内容区域（显示在标注之下） -->
             <div v-if="isPracticeMode" class="practice-content-area">
               <div class="practice-title-section">
                 <h4 class="practice-section-title">📖 练习内容</h4>
@@ -78,15 +78,14 @@
               <!-- 一键填充按钮 -->
               <div class="practice-action">
                 <el-button type="primary" size="small" @click="fillTemplate" class="fill-btn">
-                  📋 一键填充代码模板
-                </el-button>
+                  📋 一键填充代码模板                </el-button>
               </div>
             </div>
             
-            <el-form label-width="80px" class="submit-form">
+            <el-form label-width="60px" class="submit-form">
               <el-form-item label="题目">
-                <el-select v-model="selectedQuestion" placeholder="请选择题目" class="full-width">
-                  <el-option v-for="(item, key) in questionBank" :key="key" :label="item.title" :value="key" />
+                <el-select v-model="selectedQuestion" placeholder="请选择题目">
+                  <el-option v-for="key in Object.keys(questionBank)" :key="key" :label="questionBank[key].title" :value="key" />
                 </el-select>
               </el-form-item>
               <el-form-item label="语言">
@@ -97,10 +96,21 @@
               </el-form-item>
               
               <el-form-item label="代码">
-                <CodeEditor v-if="editorReady" v-model="code" :language="language" />
-                <div v-else class="editor-placeholder">加载中...</div>
+                <div class="editor-wrapper">
+                  <div style="width:100%;max-width:100%;overflow:hidden;">
+                    <CodeEditor v-if="editorReady" v-model="code" :language="language" />
+                    <div v-else class="editor-placeholder">加载中...</div>
+                  </div>
+                  
+                  <!-- 无模板提示（直接填充到编辑器） -->
+                  <div v-if="showNoTemplateHint && !isPracticeMode && !code.trim()" class="floating-hint">
+                    <span class="hint-icon">📝</span>
+                    <span class="hint-text"># 该题目没有模板，请自行编写完整代码</span>
+                    <span class="hint-close" @click="showNoTemplateHint = false">×</span>
+                  </div>
+                </div>
                 <div v-if="lastSavedTime" class="auto-save-status">
-                  ✅ 自动保存于 {{ lastSavedTime }}
+                  <span>✓ 自动保存 {{ lastSavedTime }}</span>
                 </div>
               </el-form-item>
               <el-form-item>
@@ -117,7 +127,7 @@
             <el-card v-if="showOutput" header="💻 运行结果">
               <div class="output-container">
                 <div v-if="running" class="running-indicator">
-                  <el-spinner size="medium" />
+                  <el-icon class="is-loading" :size="24"><Loading /></el-icon>
                   <span>正在运行...</span>
                 </div>
                 <div v-else>
@@ -141,11 +151,10 @@
             </div>
             <GradeReport v-if="report" :report="report" :stream-content="streamContent" @ask="openTutor" />
 
-            <!-- ★ 提交至教师按钮（练习模式下不显示） -->
+            <!-- 提交至教师按钮（练习模式下不显示） -->
             <div v-if="report && !report.streaming && !isPracticeMode" class="submit-to-teacher">
               <el-button type="success" @click="submitToTeacher" :loading="submitting" class="teacher-btn">
-                📮 提交至教师
-              </el-button>
+                📮 提交至教师              </el-button>
               <span class="submit-hint">将最终版本提交给教师查看</span>
             </div>
             
@@ -160,7 +169,7 @@
 
             <LearningPath :steps="learningPath" :active-step="0" @start-step="handleStartStep" />
 
-            <!-- ★ 推荐练习区域 -->
+            <!-- 推荐练习区域 -->
             <div v-if="practiceList.length > 0" class="practice-area">
               <el-divider />
               <h3>🎯 推荐练习</h3>
@@ -197,6 +206,7 @@
 </template>
 
 <script setup>
+import { Loading } from '@element-plus/icons-vue'
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import CodeEditor from '@/components/CodeEditor.vue'
 import GradeReport from '@/components/GradeReport.vue'
@@ -217,7 +227,8 @@ const loading = ref(false)
 const running = ref(false)
 const submitting = ref(false)
 const practiceLoading = ref(false)
-const editorReady = ref(false)
+const editorReady = ref(true)  // ★ 初始为 true
+const showNoTemplateHint = ref(false)
 
 // 表单数据
 const selectedQuestion = ref('')
@@ -238,6 +249,7 @@ const isPracticeMode = ref(false)
 const currentPractice = ref(null)
 const currentPracticeDescription = ref('')
 const originalCode = ref('')
+const isProgrammaticChange = ref(false)
 
 // 学习数据
 const weakKnowledge = ref([])
@@ -258,28 +270,57 @@ const ollamaStatus = ref({
   suggestion: ''
 })
 
-// ★ 获取当前题目的模板
-const getCurrentTemplate = () => {
-  const currentQ = questionBank.value[selectedQuestion.value]
-  if (!currentQ) return ''
+// 获取当前题目的模板
+const getCurrentPractices = () => {
+  const q = questionBank[selectedQuestion.value]
+  if (!q) return []
   
   const lang = language.value === 'java' ? 'java' : 'python'
-  return currentQ[lang]?.template || ''
+  const langData = q[lang]
+  
+  if (!langData) return []
+  
+  // ★ practices 可能是数组、undefined 或不存在
+  const practices = langData.practices
+  if (Array.isArray(practices)) return practices
+  
+  // 如果有 template，生成默认练习
+  if (langData.template) {
+    return [{
+      description: `巩固练习：${q.title}`,
+      difficulty: 1,
+      questionId: selectedQuestion.value,
+      template: langData.template
+    }]
+  }
+  
+  return []
+}
+// 获取当前题目的模板
+const getCurrentTemplate = () => {
+  const q = questionBank[selectedQuestion.value]
+  if (!q) return ''
+  const lang = language.value === 'java' ? 'java' : 'python'
+  const langData = q[lang]
+  if (langData && langData.template) return langData.template
+  if (q.template) return q.template
+  return ''
 }
 
-// ★ 获取当前题目的描述
+// 检测当前题目是否有模板
+const hasTemplate = () => {
+  const template = getCurrentTemplate()
+  return template && template.trim().length > 0
+}
+
+// 获取当前题目的描述
 const getCurrentDescription = () => {
-  const currentQ = questionBank.value[selectedQuestion.value]
+  const currentQ = questionBank[selectedQuestion.value]
   return currentQ?.description || ''
 }
 
-// ★ 获取当前题目的练习列表
-const getCurrentPractices = () => {
-  const currentQ = questionBank.value[selectedQuestion.value]
-  return currentQ?.practices || []
-}
 
-// ★ 填充代码模板
+// 填充代码模板
 const fillTemplate = () => {
   if (isPracticeMode.value && currentPractice.value?.template) {
     code.value = currentPractice.value.template
@@ -288,34 +329,66 @@ const fillTemplate = () => {
   }
 }
 
-// ★ 加载题目列表
+// 加载题目列表
 const loadQuestions = async () => {
   try {
-    const response = await fetch('/api/questions')
-    const result = await response.json()
-    if (result.questions) {
-      const questionMap = {}
-      result.questions.forEach(q => {
-        questionMap[q.id] = {
-          ...q,
-          python: q.python || {},
-          java: q.java || {}
+    const res = await fetch('/api/questions')
+    const data = await res.json()
+    if (data.questions && data.questions.length > 0) {
+      // 清空旧数据
+      Object.keys(questionBank).forEach(k => delete questionBank[k])
+      
+      data.questions.forEach(q => {
+        questionBank[q.id] = {
+          title: q.title || '',
+          description: q.python?.description || q.description || '',
+          rubrics: q.python?.rubrics || q.rubrics || '',
+          python: {
+            template: q.python?.template || '',
+            description: q.python?.description || '',
+            rubrics: q.python?.rubrics || '',
+            practices: []
+          },
+          java: {
+            template: q.java?.template || '',
+            description: q.java?.description || '',
+            rubrics: q.java?.rubrics || '',
+            practices: []
+          }
         }
       })
-      questionBank.value = questionMap
-
-      const keys = Object.keys(questionBank.value)
-      if (keys.length > 0 && !selectedQuestion.value) {
-        selectedQuestion.value = keys[0]
-      }
+      
+      console.log('✅ 从后端加载题目成功，共', Object.keys(questionBank).length, '道')
+      console.log('题目列表:', Object.keys(questionBank))
+      return true
     }
-  } catch (error) {
-    console.error('从API获取题目失败:', error)
-    questionBank.value = adminStore.getQuestionsForStudent() || {}
+  } catch (e) {
+    console.error('从后端加载题目失败:', e)
   }
+  
+  // 后端失败，从 localStorage 兜底
+  const saved = localStorage.getItem('admin_questions')
+  if (saved) {
+    try {
+      const questions = JSON.parse(saved)
+      questions.forEach(q => {
+        questionBank[q.id] = {
+          title: q.title,
+          description: q.description || '',
+          rubrics: q.rubrics || '',
+          python: q.python || { template: '', practices: [] },
+          java: q.java || { template: '', practices: [] }
+        }
+      })
+      console.log('从 localStorage 加载题目成功')
+      return true
+    } catch (e) {}
+  }
+  return false
 }
+  
 
-// ★ 提交批改（SSE 流式）
+// 提交批改（SSE 流式）
 const submitGrade = async () => {
   if (!selectedQuestion.value) {
     alert('请先选择题目')
@@ -330,14 +403,24 @@ const submitGrade = async () => {
     return
   }
 
-  const currentQ = questionBank.value[selectedQuestion.value]
+  if (loading.value) {
+    return
+  }
+
+  const currentQ = questionBank[selectedQuestion.value]
   const langKey = language.value === 'java' ? 'java' : 'python'
   const questionText = currentQ?.description || currentQ?.title || ''
   const rubrics = currentQ?.[langKey]?.rubrics || currentQ?.rubrics || ''
 
+  if (loading.value) {
+    return
+  }
+
   loading.value = true
-  report.value = null
+  report.value = { overall_score: 0, summary: '', deductions: [], streaming: true }
   streamContent.value = ''
+
+  const controller = new AbortController()
 
   try {
     const response = await fetch('/api/grade/stream', {
@@ -352,73 +435,112 @@ const submitGrade = async () => {
         question: questionText,
         rubrics,
       }),
+      signal: controller.signal,
     })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`)
+    }
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder('utf-8')
     let buffer = ''
+    let streamComplete = false
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const data = line.slice(6).trim()
-        if (data === '[DONE]') {
-          loading.value = false
-          return
+    while (!streamComplete) {
+      try {
+        const { done, value } = await reader.read()
+        if (done) {
+          streamComplete = true
+          break
         }
-        try {
-          const msg = JSON.parse(data)
-          if (msg.type === 'review' || msg.type === 'content') {
-            streamContent.value += msg.content
-          } else if (msg.type === 'diagnosis') {
-            streamContent.value += `\n${msg.content}\n`
-          } else if (msg.type === 'result') {
-            report.value = { ...msg.data, summary: msg.data.summary || streamContent.value, streaming: false }
-            reportJson.value = JSON.stringify(msg.data)
-            generateKnowledgeAndPractices(msg.data)
-            saveToTeacherStore(msg.data)
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') {
+            streamComplete = true
             loading.value = false
-          } else if (msg.type === 'error') {
-            report.value = { overall_score: 0, summary: msg.content || '批改出错', deductions: [], streaming: false }
-            loading.value = false
+            break
           }
-        } catch (e) {
-          // ignore parse errors for partial chunks
+          try {
+            const msg = JSON.parse(data)
+            if (msg.type === 'review' || msg.type === 'content') {
+              streamContent.value += msg.content
+            } else if (msg.type === 'diagnosis') {
+              streamContent.value += `\n${msg.content}\n`
+            } else if (msg.type === 'result') {
+              report.value = { ...msg.data, summary: streamContent.value || msg.data.summary, streaming: false }
+              reportJson.value = JSON.stringify({ ...msg.data, summary: streamContent.value || msg.data.summary })
+              generateKnowledgeAndPractices({ ...msg.data, summary: streamContent.value || msg.data.summary })
+              saveToTeacherStore({ ...msg.data, summary: streamContent.value || msg.data.summary })
+              loading.value = false
+              streamComplete = true
+              break
+            } else if (msg.type === 'error') {
+              report.value = { overall_score: 0, summary: msg.content || '批改出错', deductions: [], streaming: false }
+              loading.value = false
+              streamComplete = true
+              break
+            }
+          } catch (e) {
+            console.warn('SSE消息解析失败:', e)
+          }
         }
+      } catch (readErr) {
+        if (readErr.name === 'AbortError') {
+          console.log('请求已被取消')
+          streamComplete = true
+          break
+        }
+        throw readErr
       }
     }
     loading.value = false
   } catch (err) {
-    report.value = { overall_score: 0, summary: '请求失败', deductions: [], streaming: false }
+    console.error('批改请求失败:', err)
+    report.value = { overall_score: 0, summary: '请求失败: ' + err.message, deductions: [], streaming: false }
     loading.value = false
+  } finally {
+    controller.abort()
   }
 }
 
-// ★ 保存到教师端存储
-const saveToTeacherStore = (data) => {
-  adminStore.addGrade({
-    userId: authStore.userId,
-    dbUserId: authStore.dbUserId,
-    userName: authStore.name,
-    className: authStore.className,
-    questionId: selectedQuestion.value,
-    code: code.value,
-    language: language.value,
-    overall_score: data.overall_score,
-    summary: data.summary,
-    deductions: data.deductions || [],
-    submittedAt: new Date().toLocaleString(),
-  })
+// 保存到教师端存储（自动提交到后端数据库）
+const saveToTeacherStore = async (data) => {
+  try {
+    const response = await fetch('/api/grades', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authStore.token}`,
+      },
+      body: JSON.stringify({
+        user_id: authStore.dbUserId,
+        user_name: authStore.name,
+        question_id: selectedQuestion.value,
+        code: code.value,
+        language: language.value,
+        overall_score: parseFloat(data.overall_score) || 0,
+        summary: data.summary || '',
+        deductions: data.deductions || [],
+        class_name: authStore.className,
+      }),
+    })
+    
+    if (!response.ok) {
+      console.error('自动保存成绩失败:', response.statusText)
+    }
+  } catch (error) {
+    console.error('自动保存成绩失败:', error)
+  }
 }
 
-// ★ 提交至教师
+// 提交至教师
 const submitToTeacher = async () => {
   if (!report.value) return
 
@@ -433,6 +555,7 @@ const submitToTeacher = async () => {
       },
       body: JSON.stringify({
         user_id: authStore.dbUserId,
+        user_name: authStore.name,
         question_id: selectedQuestion.value,
         code: code.value,
         language: language.value,
@@ -452,7 +575,7 @@ const submitToTeacher = async () => {
   }
 }
 
-// ★ 自动保存代码到后端
+// 自动保存代码到后端
 const autoSaveCode = async () => {
   if (!code.value.trim() || !selectedQuestion.value || !authStore.token) return
 
@@ -475,7 +598,7 @@ const autoSaveCode = async () => {
   }
 }
 
-// ★ 加载自动保存的代码
+// 加载自动保存的代码
 const loadAutoSaveCode = async () => {
   if (!selectedQuestion.value || !authStore.token) return
   try {
@@ -492,39 +615,117 @@ const loadAutoSaveCode = async () => {
   }
 }
 
-// ★ 更新编辑器
+// 更新编辑器
 const updateEditor = () => {
+  // ★ 确保 selectedQuestion 有值
+  if (!selectedQuestion.value || !questionBank[selectedQuestion.value]) {
+    const firstKey = Object.keys(questionBank)[0]
+    if (firstKey) {
+      selectedQuestion.value = firstKey
+    }
+  }
+  
+  const template = getCurrentTemplate()
+  if (template) {
+    code.value = template
+  }
+  
+  practiceList.value = getCurrentPractices()
+  report.value = null
+  reportJson.value = '{}'
+  weakKnowledge.value = []
+  learningPath.value = []
+  
   editorReady.value = false
   nextTick(() => {
     editorReady.value = true
-    // 如果代码为空且有题目，填充模板
-    if (!code.value.trim() && selectedQuestion.value) {
-      code.value = getCurrentTemplate()
-    }
   })
 }
 
-// ★ 监听题目变化
-watch(selectedQuestion, () => {
+// 监听题目变化
+watch(selectedQuestion, async (newVal, oldVal) => {
   report.value = null
   reportJson.value = '{}'
   streamContent.value = ''
-  
+
   if (isPracticeMode.value && currentPractice.value) {
-    const currentQ = questionBank.value[selectedQuestion.value]
+    const currentQ = questionBank[newVal]
     if (currentQ) {
       const lang = language.value === 'java' ? 'java' : 'python'
       currentPractice.value.template = currentQ[lang]?.template || ''
       currentPracticeDescription.value = currentQ.description || ''
+      currentPractice.value.detail = currentQ.description || ''
       code.value = currentPractice.value.template
     }
+  } else {
+    // 普通模式：加载自动保存的代码，没有则使用模板
+    if (!isProgrammaticChange.value) {
+      await loadAutoSaveCode()
+      if (!code.value.trim()) {
+        const template = getCurrentTemplate()
+        if (template && template.trim()) {
+          code.value = template
+          showNoTemplateHint.value = false
+        } else {
+          code.value = '# 该题目没有模板，请自行编写完整代码'
+          showNoTemplateHint.value = true
+        }
+      } else {
+        showNoTemplateHint.value = false
+      }
+    }
   }
-  
   updateEditor()
 })
-watch(language, () => updateEditor())
 
-// ★ 代码变化时触发自动保存
+// 监听语言变化
+watch(language, async (newVal, oldVal) => {
+  if (isPracticeMode.value && currentPractice.value) {
+    const currentQ = questionBank[selectedQuestion.value]
+    if (currentQ) {
+      currentPractice.value.template = currentQ[newVal]?.template || ''
+      code.value = currentPractice.value.template
+    }
+  } else {
+    // 普通模式：尝试加载该语言的自动保存代码
+    if (!isProgrammaticChange.value) {
+      const savedCode = await getLangAutoSaveCode(newVal)
+      if (savedCode) {
+        code.value = savedCode
+        showNoTemplateHint.value = false
+      } else {
+        const template = getCurrentTemplate()
+        if (template && template.trim()) {
+          code.value = template
+          showNoTemplateHint.value = false
+        } else {
+          code.value = '# 该题目没有模板，请自行编写完整代码'
+          showNoTemplateHint.value = true
+        }
+      }
+    }
+  }
+  updateEditor()
+})
+
+// 获取指定语言的自动保存代码
+const getLangAutoSaveCode = async (lang) => {
+  if (!selectedQuestion.value || !authStore.token) return null
+  try {
+    const response = await fetch(`/api/drafts/${selectedQuestion.value}`, {
+      headers: { Authorization: `Bearer ${authStore.token}` },
+    })
+    const result = await response.json()
+    if (result.draft && result.draft.language === lang) {
+      return result.draft.code
+    }
+  } catch (e) {
+    console.error('加载自动保存代码失败:', e)
+  }
+  return null
+}
+
+// 代码变化时触发自动保存
 const handleCodeChange = () => {
   if (autoSaveTimer.value) {
     clearTimeout(autoSaveTimer.value)
@@ -534,60 +735,96 @@ const handleCodeChange = () => {
   }, 2000)
 }
 
-// ★ 监听代码变化，触发自动保存
-watch(code, handleCodeChange)
+// 监听代码变化，触发自动保存
+watch(code, (newCode) => {
+  // 用户开始输入时隐藏无模板提示
+  if (newCode && newCode.trim().length > 0) {
+    showNoTemplateHint.value = false
+  }
+  handleCodeChange()
+})
 
 const handleLogout = () => {
   authStore.logout()
   window.location.href = '/login'
 }
 
-// ★ 切换练习模式
-const togglePracticeMode = () => {
-  if (isPracticeMode.value) {
+// 切换练习模式
+const togglePracticeMode = (newValue) => {
+  if (!newValue) {
+    // 退出练习模式，恢复到练习前的状态
+    
+    // 0. 设置模式标志为false
     isPracticeMode.value = false
+    
+    // 1. 清除所有练习模式相关的数据
     currentPractice.value = null
     currentPracticeDescription.value = ''
+    practiceList.value = []
+    weakKnowledge.value = []
+    learningPath.value = []
     
-    if (originalCode.value) {
+    // 2. 清除练习模式的批改报告
+    report.value = null
+    reportJson.value = '{}'
+    streamContent.value = ''
+    
+    // 3. 恢复代码到练习前的状态
+    if (originalCode.value && originalCode.value.trim()) {
       code.value = originalCode.value
+      originalCode.value = ''
     } else {
+      // 如果没有保存的代码，恢复到当前题目的模板
       code.value = getCurrentTemplate()
     }
     
+    // 4. 检查当前题目是否有模板
+    showNoTemplateHint.value = !hasTemplate()
+    
+    // 5. 强制刷新编辑器
     editorReady.value = false
     nextTick(() => {
       editorReady.value = true
+      // 显示提示信息
+      alert('已退出练习模式，代码已恢复到练习前的状态')
     })
   } else {
+    // 进入练习模式
     if (!selectedQuestion.value) {
       alert('请先选择题目')
       isPracticeMode.value = false
       return
     }
-    
-    originalCode.value = code.value
+
+    // 保存当前代码状态
+    if (code.value && code.value.trim()) {
+      originalCode.value = code.value
+    } else {
+      originalCode.value = getCurrentTemplate()
+    }
+
     isPracticeMode.value = true
-    currentPracticeDescription.value = getCurrentDescription()
-    
-    const currentQ = questionBank.value[selectedQuestion.value]
+    const currentQ = questionBank[selectedQuestion.value]
     if (currentQ) {
+      currentPracticeDescription.value = currentQ.description || ''
       currentPractice.value = {
         description: currentQ.title,
         detail: currentQ.description,
         template: getCurrentTemplate(),
         questionId: selectedQuestion.value
       }
+      code.value = currentPractice.value.template
     }
     
     editorReady.value = false
     nextTick(() => {
       editorReady.value = true
+      alert('已进入练习模式，原代码已保存，退出时将自动恢复')
     })
   }
 }
 
-// ★ 运行代码
+// 运行代码
 const runCode = async () => {
   if (!selectedQuestion.value) {
     alert('请先选择题目')
@@ -644,7 +881,7 @@ const runCode = async () => {
   }
 }
 
-// ★ 快捷键处理
+// 快捷键处理
 const handleKeydown = (e) => {
   if (e.ctrlKey || e.metaKey) {
     if (e.key === 'Enter') {
@@ -657,25 +894,34 @@ const handleKeydown = (e) => {
   }
 }
 
-onMounted(() => {
-  // 模拟加载延迟
-  setTimeout(() => {
-    pageLoading.value = false
-    loadQuestions()
-    loadAutoSaveCode()
-  }, 500)
+onMounted(async () => {
+  await loadQuestions()
   
-  window.addEventListener('keydown', handleKeydown)
+  // 确保有默认选中
+  if (!selectedQuestion.value) {
+    selectedQuestion.value = Object.keys(questionBank)[0] || 'q1'
+  }
   
-  // 检查Ollama状态
-  checkOllamaStatus()
+  // 直接设置模板
+  const template = getCurrentTemplate()
+  if (template) {
+    code.value = template
+  }
   
-  onUnmounted(() => {
-    window.removeEventListener('keydown', handleKeydown)
-  })
+  editorReady.value = true
+  pageLoading.value = false
 })
 
-// ★ 检查Ollama状态
+// 监听adminStore题目变化，同步更新学生端
+watch(
+  () => adminStore.questions,
+  () => {
+    loadQuestions()
+  },
+  { deep: true }
+)
+
+// 检查Ollama状态
 const checkOllamaStatus = async () => {
   try {
     const response = await fetch('/api/ollama/status')
@@ -692,7 +938,7 @@ const checkOllamaStatus = async () => {
   }
 }
 
-// ★ 切换离线模式
+// 切换离线模式
 const toggleOfflineMode = async (value) => {
   if (value) {
     // 切换到离线模式前检查Ollama状态
@@ -705,12 +951,12 @@ const toggleOfflineMode = async (value) => {
     }
     
     if (!ollamaStatus.value.model_available) {
-      alert(`模型未准备好：${ollamaStatus.value.suggestion}`)
+      alert(`模型未准备好！${ollamaStatus.value.suggestion}`)
       offlineMode.value = false
       return
     }
     
-    // 发送切换请求
+    // 发送切换请求    
     try {
       await fetch('/api/model/toggle', {
         method: 'POST',
@@ -726,7 +972,7 @@ const toggleOfflineMode = async (value) => {
       offlineMode.value = false
     }
   } else {
-    // 切换到在线模式
+    // 切换到在线模式    
     try {
       await fetch('/api/model/toggle', {
         method: 'POST',
@@ -744,29 +990,26 @@ const toggleOfflineMode = async (value) => {
   }
 }
 
-// ★ 刷新Ollama状态
+// 刷新Ollama状态
 const refreshOllamaStatus = () => {
   checkOllamaStatus()
 }
 
-// ★ 根据薄弱知识点生成针对性练习
+// 根据薄弱知识点生成针对性练习
 const generatePracticeTemplate = (weakPoint, language) => {
   const templates = {
     '边界条件处理': {
       python: `# ============================================
-# 专项练习：边界条件处理
-# ============================================
+# 专项练习：边界条件处理# ============================================
 # 练习目标：掌握常见的边界情况处理
 # 薄弱点：${weakPoint}
 # ============================================
 
 def process_data(data):
     """
-    处理输入数据，返回处理后的结果列表
-    
+    处理输入数据，返回处理后的结果列表    
     参数:
-        data (list): 输入的整数列表
-        
+        data (list): 输入的整数列表        
     返回:
         list: 处理后的列表
         
@@ -927,8 +1170,6 @@ def efficient_loop(items):
 # ============================================
 test_list = [1, 2, -3, 4, -5, 6, 7, -8, 9]
 even_sum, max_odd, negative_count = efficient_loop(test_list)
-
-print(f"输入列表: {test_list}")
 print(f"偶数和: {even_sum} (期望: 2+4+6+(-8) = 4)")
 print(f"最大奇数: {max_odd} (期望: 9)")
 print(f"负数个数: {negative_count} (期望: 3)")`,
@@ -1002,7 +1243,7 @@ public class LoopPractice {
 
 # TODO: 重构以下代码使其符合Python编码规范
 # 要求:
-# 1. 变量命名使用蛇形命名法 (snake_case)
+# 1. 变量命名使用蛇形命名法(snake_case)
 # 2. 添加适当的注释和文档字符串
 # 3. 保持适当的空行
 # 4. 函数参数格式正确
@@ -1043,12 +1284,11 @@ print(f"calculate_sum(5, 2, 3) = {calculate_sum(5, 2, 3)} (期望: 5+2+3 = 10)")
 
 // TODO: 重构以下代码使其符合Java编码规范
 // 要求:
-// 1. 变量命名使用驼峰命名法 (camelCase)
+// 1. 变量命名使用驼峰命名法(camelCase)
 // 2. 添加适当的注释和文档注释
 // 3. 保持适当的空行
 // 4. 代码块格式正确
 // 5. 大括号位置规范
-
 public class CodeStylePractice {
     
     /**
@@ -1086,7 +1326,7 @@ public class CodeStylePractice {
       python: `# ============================================
 # 专项练习：算法效率优化
 # ============================================
-# 练习目标：掌握时间复杂度优化技巧
+# 练习目标：掌握时间复杂度优化技术
 # 薄弱点：${weakPoint}
 # ============================================
 
@@ -1101,7 +1341,7 @@ def find_duplicates(nums):
         list: 重复元素组成的列表
         
     优化目标:
-        当前朴素实现的时间复杂度是 O(n^2)
+        当前朴素实现的时间复杂度为 O(n^2)
         请优化为 O(n) 时间复杂度
     """
     # ========== 请在此处填写优化后的代码 ==========
@@ -1129,7 +1369,7 @@ print(f"重复元素: {result} (期望: [1, 2, 5])")`,
       java: `// ============================================
 // 专项练习：算法效率优化
 // ============================================
-// 练习目标：掌握时间复杂度优化技巧
+// 练习目标：掌握时间复杂度优化技术
 // 薄弱点：${weakPoint}
 // ============================================
 
@@ -1146,7 +1386,7 @@ public class EfficiencyPractice {
      * @return 重复元素组成的列表
      * 
      * 优化目标:
-     *     当前朴素实现的时间复杂度是 O(n^2)
+     *     当前朴素实现的时间复杂度为 O(n^2)
      *     请优化为 O(n) 时间复杂度
      */
     public static List<Integer> findDuplicates(int[] nums) {
@@ -1201,7 +1441,7 @@ def calculate_stats(data):
             - average: 平均值
             - max: 最大值
             - min: 最小值
-            - range: 极差（最大值-最小值）
+            - range: 极差（最大值减最小值）
     """
     
     # ========== 请在此处填写代码 ==========
@@ -1431,7 +1671,7 @@ public class LogicFixPractice {
   return templates[weakPoint]?.[lang] || generateDefaultPractice(language)
 }
 
-// ★ 生成默认练习模板
+// 生成默认练习模板
 const generateDefaultPractice = (language) => {
   if (language === 'java') {
     return `// 巩固练习
@@ -1465,7 +1705,7 @@ const generateKnowledgeAndPractices = (evaluationData) => {
     common_mistake: d.reason
   }))
   
-  // ★ 根据薄弱知识点生成有针对性的练习
+  // 根据薄弱知识点生成有针对性的练习
   const newPractices = deductions.map((d, index) => ({
     description: `练习${index + 1}：${d.type}专项训练`,
     detail: d.reason,
@@ -1474,7 +1714,7 @@ const generateKnowledgeAndPractices = (evaluationData) => {
     template: generatePracticeTemplate(d.type, language.value)
   }))
   
-  // ★ 如果没有扣分，生成巩固练习
+  // 如果没有扣分，生成巩固练习
   if (newPractices.length === 0) {
     newPractices.push({
       description: '巩固练习：复习当前知识点',
@@ -1485,7 +1725,7 @@ const generateKnowledgeAndPractices = (evaluationData) => {
     })
   }
   
-  // ★ 添加题目库中预定义的练习作为补充
+  // 添加题目库中预定义的练习作为补充
   const predefinedPractices = getCurrentPractices()
   practiceList.value = [...newPractices, ...predefinedPractices]
   
@@ -1503,7 +1743,7 @@ const generateKnowledgeAndPractices = (evaluationData) => {
 
 const openTutor = () => { showTutor.value = true }
 
-// ★ 开始练习
+// 开始练习
 const startPractice = (practice) => {
   if (!practice || practiceLoading.value) return
   
@@ -1513,6 +1753,7 @@ const startPractice = (practice) => {
     try {
       originalCode.value = code.value
       
+      isProgrammaticChange.value = true
       isPracticeMode.value = true
       currentPractice.value = practice
       currentPracticeDescription.value = practice.description || getCurrentDescription()
@@ -1524,6 +1765,8 @@ const startPractice = (practice) => {
       if (practice.questionId) {
         selectedQuestion.value = practice.questionId
       }
+      
+      isProgrammaticChange.value = false
       
       showTutor.value = false
       report.value = null
@@ -1605,14 +1848,48 @@ def practice():
 
 .el-main {
   padding: 20px;
+  overflow: hidden;
 }
 
 .el-row {
   margin: 0 !important;
+  display: flex;
+  flex-wrap: wrap;
 }
 
 .left-col, .right-col {
   margin-bottom: 16px;
+  height: calc(100vh - 96px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.left-col::-webkit-scrollbar,
+.right-col::-webkit-scrollbar {
+  width: 8px;
+}
+
+.left-col::-webkit-scrollbar-track,
+.right-col::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.left-col::-webkit-scrollbar-thumb,
+.right-col::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.left-col::-webkit-scrollbar-thumb:hover,
+.right-col::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+.left-col .el-card,
+.right-col .el-card {
+  width: 100%;
+  min-width: 0;
 }
 
 .full-width {
@@ -1756,6 +2033,54 @@ def practice():
   color: #c62828;
 }
 
+.editor-wrapper {
+  position: relative;
+}
+
+.floating-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+  border: 1px solid #ff9800;
+  border-radius: 12px;
+  padding: 16px 24px;
+  color: #e65100;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 20px rgba(255, 152, 0, 0.3);
+  z-index: 10;
+  animation: fadeInUp 0.3s ease-in-out;
+}
+
+.floating-hint .hint-icon {
+  font-size: 20px;
+}
+
+.floating-hint .hint-text {
+  font-weight: 500;
+}
+
+.floating-hint .hint-close {
+  margin-left: 12px;
+  font-size: 20px;
+  cursor: pointer;
+  color: #ff9800;
+  transition: color 0.2s;
+}
+
+.floating-hint .hint-close:hover {
+  color: #e65100;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translate(-50%, -40%); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
 .auto-save-status {
   font-size: 12px;
   color: #66bb6a;
@@ -1877,3 +2202,4 @@ def practice():
   margin: 4px 0 0 0;
 }
 </style>
+

@@ -40,6 +40,8 @@
 </template>
 
 <script setup>
+import { ElMessage } from 'element-plus'
+
 defineProps({
   report: { type: Object, default: null },
   streamContent: { type: String, default: '' }
@@ -51,14 +53,36 @@ const escapeHtml = (str) => {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+const copyCode = (code, event) => {
+  navigator.clipboard.writeText(code).then(() => {
+    ElMessage.success('代码已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.error('复制失败')
+  })
+}
+
 const formatContent = (text) => {
   if (!text) return ''
   let result = text
   result = result.replace(/```(\w*)\s*\n([\s\S]*?)```/g, (match, lang, code) => {
-    return `<div style="background:#1e1e1e;color:#d4d4d4;padding:15px;border-radius:6px;overflow-x:auto;font-family:Consolas,Monaco,Courier New,monospace;font-size:14px;line-height:1.6;margin:10px 0;white-space:pre-wrap;">${escapeHtml(code.trim())}</div>`
+    const escapedCode = escapeHtml(code.trim())
+    const copyBtn = `<button class="code-copy-btn" onclick="window.copyCodeGradeReport(this)" data-code="${escapeHtml(code.trim())}">📋 复制</button>`
+    return `<div class="code-block-wrapper">${copyBtn}<div class="code-block" style="background:#1e1e1e;color:#d4d4d4;padding:15px;border-radius:6px;overflow-x:auto;font-family:Consolas,Monaco,'Courier New',monospace;font-size:14px;line-height:1.6;margin:10px 0;white-space:pre-wrap;position:relative;">${escapedCode}</div></div>`
   })
   result = result.replace(/\n/g, '<br>')
   return result
+}
+
+// 全局复制函数
+if (typeof window !== 'undefined') {
+  window.copyCodeGradeReport = (btn) => {
+    const code = btn.getAttribute('data-code')
+    navigator.clipboard.writeText(code).then(() => {
+      ElMessage.success('代码已复制到剪贴板')
+    }).catch(() => {
+      ElMessage.error('复制失败')
+    })
+  }
 }
 </script>
 
@@ -155,5 +179,38 @@ const formatContent = (text) => {
   0% { transform: scale(0.5); opacity: 0; }
   70% { transform: scale(1.1); }
   100% { transform: scale(1); opacity: 1; }
+}
+
+.code-block-wrapper {
+  position: relative;
+  margin: 10px 0;
+}
+
+.code-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.3s ease;
+}
+
+.code-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.code-block {
+  position: relative;
+}
+
+.code-block-wrapper:hover .code-copy-btn {
+  opacity: 1;
 }
 </style>

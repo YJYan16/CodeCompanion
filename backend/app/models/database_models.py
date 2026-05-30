@@ -33,11 +33,15 @@ class Question(Base):
     __tablename__ = "questions"
     
     id = Column(Integer, primary_key=True, index=True)
-    question_id = Column(String, unique=True, nullable=False)  # 题目唯一标识
+    question_id = Column(String, unique=True, nullable=False)
     title = Column(String, nullable=False)
     description = Column(Text)
     python_template = Column(Text)
+    python_description = Column(Text)
+    python_rubrics = Column(Text)
     java_template = Column(Text)
+    java_description = Column(Text)
+    java_rubrics = Column(Text)
     rubrics = Column(Text)
     difficulty = Column(String)
     created_at = Column(DateTime, default=datetime.now)
@@ -48,9 +52,10 @@ class Question(Base):
 # 成绩模型
 class Grade(Base):
     __tablename__ = "grades"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    user_name = Column(String, nullable=True)
     question_id = Column(Integer, ForeignKey("questions.id"))
     class_id = Column(Integer, ForeignKey("classes.id"))
     code = Column(Text)

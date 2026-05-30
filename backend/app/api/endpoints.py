@@ -1,6 +1,7 @@
 # backend/app/api/endpoints.py
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
+from typing import Optional
 from ..models.schemas import (
     GradeRequest, GradeResponse, TutorRequest, TutorResponse, HealthResponse, Deduction,
     SaveGradeRequest,
@@ -8,6 +9,7 @@ from ..models.schemas import (
 from ..models.database_models import Question, Grade, User, Class
 from ..core.database import get_db
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import sys
 import os
 import json
@@ -49,15 +51,23 @@ router = APIRouter()
 # 获取所有题目
 @router.get("/questions")
 async def get_all_questions(db: Session = Depends(get_db)):
-    questions = db.query(Question).all()
+    questions = db.query(Question).filter(Question.question_id != "").all()
     result = []
     for q in questions:
         result.append({
             "id": q.question_id,
             "title": q.title,
             "description": q.description,
-            "python": {"template": q.python_template},
-            "java": {"template": q.java_template},
+            "python": {
+                "template": q.python_template or "",
+                "description": q.python_description or q.description or "",
+                "rubrics": q.python_rubrics or q.rubrics or ""
+            },
+            "java": {
+                "template": q.java_template or "",
+                "description": q.java_description or q.description or "",
+                "rubrics": q.java_rubrics or q.rubrics or ""
+            },
             "rubrics": q.rubrics,
             "difficulty": q.difficulty,
             "created_at": q.created_at.isoformat() if q.created_at else None
@@ -83,8 +93,8 @@ async def get_question(question_id: str, db: Session = Depends(get_db)):
 # 添加题目
 @router.post("/questions")
 async def create_question(
-    question_id: str,
-    title: str,
+    question_id: str = None,
+    title: str = None,
     description: str = "",
     python_template: str = "",
     java_template: str = "",
@@ -92,9 +102,20 @@ async def create_question(
     difficulty: str = "简单",
     db: Session = Depends(get_db)
 ):
-    existing = db.query(Question).filter(Question.question_id == question_id).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="题目ID已存在")
+    if not question_id:
+        max_id = db.query(func.max(Question.question_id)).scalar()
+        if max_id is None or max_id == "":
+            question_id = "1"
+        else:
+            try:
+                question_id = str(int(max_id) + 1)
+            except ValueError:
+                existing_ids = [int(q.question_id) for q in db.query(Question.question_id).all() if q.question_id.isdigit()]
+                question_id = str(max(existing_ids) + 1) if existing_ids else "1"
+    else:
+        existing = db.query(Question).filter(Question.question_id == question_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="题目ID已存在")
     
     question = Question(
         question_id=question_id,
@@ -110,7 +131,19 @@ async def create_question(
     db.commit()
     db.refresh(question)
     
-    return {"success": True, "message": "题目添加成功"}
+    await ws_manager.broadcast(
+        "question_created",
+        {
+            "question_id": question.question_id,
+            "title": question.title,
+            "python_template": question.python_template or "",
+            "java_template": question.java_template or "",
+            "python_description": question.python_description or "",
+            "java_description": question.java_description or "",
+        }
+    )
+    
+    return {"success": True, "message": "题目添加成功", "question_id": question_id}
 
 # 更新题目
 @router.put("/questions/{question_id}")
@@ -118,32 +151,64 @@ async def update_question(
     question_id: str,
     title: str = None,
     description: str = None,
-    python_template: str = None,
-    java_template: str = None,
+    python_template: str = "",
+    python_description: str = None,
+    python_rubrics: str = None,
+    java_template: str = "",
+    java_description: str = None,
+    java_rubrics: str = None,
     rubrics: str = None,
     difficulty: str = None,
     db: Session = Depends(get_db)
 ):
+    print(f"[DEBUG] update_question called with question_id={question_id}")
+    print(f"[DEBUG] python_template received: {repr(python_template)}")
+    print(f"[DEBUG] java_template received: {repr(java_template)}")
+    
     question = db.query(Question).filter(Question.question_id == question_id).first()
     if not question:
         raise HTTPException(status_code=404, detail="题目不存在")
     
-    if title:
+    if title is not None:
         question.title = title
-    if description:
+    if description is not None:
         question.description = description
-    if python_template:
+    if python_template is not None and python_template != "":
         question.python_template = python_template
-    if java_template:
+        print(f"[DEBUG] Updated python_template to: {repr(python_template[:50] if python_template else None)}...")
+    if python_description is not None:
+        question.python_description = python_description
+    if python_rubrics is not None:
+        question.python_rubrics = python_rubrics
+    if java_template is not None and java_template != "":
         question.java_template = java_template
-    if rubrics:
+        print(f"[DEBUG] Updated java_template to: {repr(java_template[:50] if java_template else None)}...")
+    if java_description is not None:
+        question.java_description = java_description
+    if java_rubrics is not None:
+        question.java_rubrics = java_rubrics
+    if rubrics is not None:
         question.rubrics = rubrics
-    if difficulty:
+    if difficulty is not None:
         question.difficulty = difficulty
     question.updated_at = datetime.now()
     
     db.commit()
     db.refresh(question)
+    
+    print(f"[DEBUG] After commit, python_template in DB: {repr(question.python_template[:50] if question.python_template else None)}...")
+    
+    await ws_manager.broadcast(
+        "question_updated",
+        {
+            "question_id": question.question_id,
+            "title": question.title,
+            "python_template": question.python_template or "",
+            "java_template": question.java_template or "",
+            "python_description": question.python_description or "",
+            "java_description": question.java_description or "",
+        }
+    )
     
     return {"success": True, "message": "题目更新成功"}
 
@@ -156,6 +221,11 @@ async def delete_question(question_id: str, db: Session = Depends(get_db)):
     
     db.delete(question)
     db.commit()
+    
+    await ws_manager.broadcast(
+        "question_deleted",
+        {"question_id": question_id}
+    )
     
     return {"success": True, "message": "题目删除成功"}
 
@@ -188,6 +258,7 @@ async def save_grade(request: SaveGradeRequest, db: Session = Depends(get_db)):
 
     grade = Grade(
         user_id=request.user_id,
+        user_name=request.user_name,
         question_id=question.id,
         class_id=class_id,
         code=request.code,
@@ -206,7 +277,7 @@ async def save_grade(request: SaveGradeRequest, db: Session = Depends(get_db)):
         {
             "grade_id": grade.id,
             "user_id": request.user_id,
-            "user_name": user.name,
+            "user_name": request.user_name,
             "question_id": request.question_id,
             "overall_score": request.overall_score,
             "class_name": request.class_name,
@@ -215,6 +286,23 @@ async def save_grade(request: SaveGradeRequest, db: Session = Depends(get_db)):
 
     return {"success": True, "message": "成绩保存成功", "grade_id": grade.id}
 
+# 删除成绩
+@router.delete("/grades/{grade_id}")
+async def delete_grade(grade_id: int, db: Session = Depends(get_db)):
+    grade = db.query(Grade).filter(Grade.id == grade_id).first()
+    if not grade:
+        raise HTTPException(status_code=404, detail="成绩不存在")
+    
+    db.delete(grade)
+    db.commit()
+    
+    await ws_manager.broadcast(
+        "grade_deleted",
+        {"grade_id": grade_id}
+    )
+    
+    return {"success": True, "message": "成绩删除成功"}
+    
 # 获取所有成绩
 @router.get("/grades")
 async def get_all_grades(db: Session = Depends(get_db)):
@@ -228,7 +316,7 @@ async def get_all_grades(db: Session = Depends(get_db)):
         result.append({
             "id": g.id,
             "user_id": g.user_id,
-            "user_name": user.name if user else "",
+            "user_name": g.user_name if g.user_name else (user.name if user else "未知学生"),
             "question_id": question.question_id if question else "",
             "question_title": question.title if question else "",
             "class_name": class_obj.name if class_obj else "",
@@ -257,7 +345,7 @@ async def get_grades_by_class(class_name: str, db: Session = Depends(get_db)):
         result.append({
             "id": g.id,
             "user_id": g.user_id,
-            "user_name": user.name if user else "",
+            "user_name": g.user_name if g.user_name else (user.name if user else "未知学生"),
             "question_id": question.question_id if question else "",
             "question_title": question.title if question else "",
             "class_name": class_obj.name,
@@ -278,10 +366,12 @@ async def get_grades_by_user(user_id: int, db: Session = Depends(get_db)):
     for g in grades:
         question = db.query(Question).filter(Question.id == g.question_id).first()
         class_obj = db.query(Class).filter(Class.id == g.class_id).first()
+        user = db.query(User).filter(User.id == g.user_id).first()
         
         result.append({
             "id": g.id,
             "user_id": g.user_id,
+            "user_name": g.user_name if g.user_name else (user.name if user else "未知学生"),
             "question_id": question.question_id if question else "",
             "question_title": question.title if question else "",
             "class_name": class_obj.name if class_obj else "",
@@ -477,10 +567,11 @@ async def grade_code(request: GradeRequest):
         
         # 未命中缓存，执行批改
         result = coordinator.grade_workflow(
-            request.code, 
-            request.question, 
-            request.rubrics
-        )
+    request.code, 
+    request.question, 
+    request.rubrics,
+    request.language
+)
         evaluation = result["evaluation"]
         diagnosis = result.get("diagnosis", {})
         
@@ -513,14 +604,20 @@ async def grade_code(request: GradeRequest):
 @router.post("/grade/stream")
 async def grade_code_stream(request: GradeRequest):
     """流式批改代码"""
+    from app.core.utils.logger import setup_logger
+    logger = setup_logger('grade_stream', 'logs/grade.log')
+    
     async def generate():
         try:
+            logger.info(f"开始批改: question_id={request.question[:50]}, code_length={len(request.code)}, language={request.language}")
+            
             # 先检查缓存（非流式结果）
             cache = get_cache()
             cache_key = make_grade_cache_key(request.code, request.question, request.rubrics)
             cached_result = cache.get(cache_key)
             
             if cached_result is not None:
+                logger.info(f"✅ 命中缓存: cache_key={cache_key}")
                 print(f"✅ 命中缓存")
                 yield f"data: {sse_json_dumps({'type': 'diagnosis', 'content': '从缓存加载数据中...'})}\n\n"
                 
@@ -542,12 +639,14 @@ async def grade_code_stream(request: GradeRequest):
                 return
             
             # 未命中缓存，正常执行
+            logger.info("未命中缓存，开始诊断")
             diagnosis = coordinator.diagnostician.diagnose(
                 code=request.code, 
                 question=request.question
             )
             
             diag_msg = f"🔍 诊断完成：{diagnosis.get('summary', '')}"
+            logger.info(f"诊断结果: {diagnosis.get('summary', '')}")
             yield f"data: {sse_json_dumps({'type': 'diagnosis', 'content': diag_msg})}\n\n"
             
             lang_hint = ""
@@ -614,20 +713,115 @@ async def grade_code_stream(request: GradeRequest):
     ]
 }}"""
             
+            review_system = "你是一位严谨的Python编程导师'码途智伴'。你的任务是根据【诊断报告】【题目要求】【评分标准】批改学生代码。严格按JSON格式输出，不要输出任何其他内容。"
+            
+            # 直接生成完整的批改JSON（包含评语和评分）
             result_text = ""
+            model_used = "本地模型" if USE_LOCAL_MODEL else "云端模型"
+            logger.info(f"使用模型: {model_used}")
+            
+            # 使用score_prompt而不是review_prompt，因为review_prompt是生成评语的prompt
+            grading_prompt = f"""{lang_hint}
+你是一位严谨的Python编程导师'码途智伴'。
+你的任务是根据【诊断报告】【题目要求】【评分标准】批改学生代码，参考知识库资料。
+
+题目：{request.question}
+评分标准：{request.rubrics or '无特定评分标准，请根据代码正确性、逻辑完整性、代码规范综合评分'}
+学生代码：
+{request.code}
+
+诊断信息：{diagnosis.get('summary', '无')}
+
+请严格按以下JSON格式输出，不要使用markdown代码块包裹：
+{{
+    "overall_score": 整数(0-100),
+    "summary": "总体评价（需要详细分析代码的优点、存在的问题，给出具体的改进建议和示例代码）",
+    "deductions": [
+        {{
+            "line": 行号(整数),
+            "type": "错误类型字符串",
+            "points_deducted": 扣分数(整数),
+            "reason": "扣分原因字符串（要具体指出代码中的问题）",
+            "suggestion": "改进建议字符串（要给出具体的改进方法和优化后的代码示例）"
+        }}
+    ]
+}}
+
+重要提醒：
+- summary字段必须详细，包含：1)代码优点 2)存在的问题 3)具体的改进建议和示例代码
+- deductions数组中的每个条目都必须包含完整的suggestion（改进建议）
+- 如果代码有问题，必须在deductions中详细列出
+- 只输出一个完整的JSON对象
+- 不要输出任何其他文字
+- 确保JSON格式完全正确"""
+            
             if USE_LOCAL_MODEL:
-                result_text = await call_local_model(f"你是评分助手，只输出JSON。\n\n{score_prompt}")
+                try:
+                    result_text = await call_local_model(f"{review_system}\n\n{grading_prompt}")
+                    logger.info(f"本地模型返回长度: {len(result_text)}")
+                    
+                    # 如果本地模型返回空内容，尝试使用云端模型作为fallback
+                    if not result_text or len(result_text.strip()) == 0:
+                        logger.warning("⚠️ 本地模型返回空内容，切换到云端模型")
+                        if settings.zhipu_api_key:
+                            response = client.chat.completions.create(
+                                model="glm-4-flash",
+                                messages=[
+                                    {"role": "system", "content": review_system},
+                                    {"role": "user", "content": grading_prompt}
+                                ],
+                                temperature=0.1
+                            )
+                            result_text = response.choices[0].message.content or ""
+                            logger.info(f"云端模型返回长度: {len(result_text)}")
+                        else:
+                            logger.error("❌ 智谱AI API key未配置，无法使用云端模型")
+                except Exception as e:
+                    logger.error(f"❌ 本地模型调用失败: {e}", exc_info=True)
+                    # 尝试使用云端模型作为fallback
+                    if settings.zhipu_api_key:
+                        logger.warning("⚠️ 本地模型调用失败，切换到云端模型")
+                        try:
+                            response = client.chat.completions.create(
+                                model="glm-4-flash",
+                                messages=[
+                                    {"role": "system", "content": review_system},
+                                    {"role": "user", "content": grading_prompt}
+                                ],
+                                temperature=0.1
+                            )
+                            result_text = response.choices[0].message.content or ""
+                            logger.info(f"云端模型返回长度: {len(result_text)}")
+                        except Exception as e2:
+                            logger.error(f"❌ 云端模型也失败: {e2}", exc_info=True)
             else:
-                response2 = client.chat.completions.create(
+                response = client.chat.completions.create(
                     model="glm-4-flash",
                     messages=[
-                        {"role": "system", "content": "你是评分助手，请根据评分标准输出JSON。只输出JSON，不要其他内容。"},
-                        {"role": "user", "content": score_prompt}
+                        {"role": "system", "content": review_system},
+                        {"role": "user", "content": grading_prompt}
                     ],
                     temperature=0.1
                 )
-                result_text = response2.choices[0].message.content
+                result_text = response.choices[0].message.content or ""
+                logger.info(f"云端模型返回长度: {len(result_text)}")
             
+            # 检查返回内容是否为空
+            if not result_text or len(result_text.strip()) == 0:
+                logger.error("❌ 模型返回内容为空")
+                error_result = {'type': 'result', 'data': {
+                    'overall_score': 10, 
+                    'summary': '模型返回内容为空，请检查模型配置或网络连接。', 
+                    'deductions': []
+                }}
+                yield f"data: {sse_json_dumps(error_result)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            
+            # 记录原始返回内容（用于调试）
+            logger.debug(f"模型原始返回内容（前500字符）: {result_text[:500]}")
+            
+            # 清理可能的markdown代码块包裹
             if result_text.startswith("```json"):
                 result_text = result_text[7:]
             elif result_text.startswith("```"):
@@ -636,23 +830,115 @@ async def grade_code_stream(request: GradeRequest):
                 result_text = result_text[:-3]
             result_text = result_text.strip()
             
+            logger.info(f"清理后的内容长度: {len(result_text)}")
+            
             try:
                 score_data = json_lib.loads(result_text)
-                score_data["summary"] = review_text
+                
+                logger.info(f"评分JSON解析成功: overall_score={score_data.get('overall_score')}, deductions_count={len(score_data.get('deductions', []))}")
+                logger.debug(f"完整JSON数据: {score_data}")
+                
+                # 验证JSON格式完整性
+                if 'overall_score' not in score_data:
+                    score_data['overall_score'] = 10
+                    logger.warning("⚠️ JSON缺少overall_score字段，设置为默认值10分")
+                
+                if 'summary' not in score_data:
+                    score_data['summary'] = '批改完成，请查看详细扣分情况。'
+                    logger.warning("⚠️ JSON缺少summary字段，设置为默认值")
+                
+                if 'deductions' not in score_data:
+                    score_data['deductions'] = []
+                    logger.warning("⚠️ JSON缺少deductions字段，设置为空数组")
+                
+                # 验证并修正deductions中的每个条目
+                valid_deductions = []
+                for d in score_data.get('deductions', []):
+                    if isinstance(d, dict) and 'type' in d and 'reason' in d:
+                        valid_deduction = {
+                            'line': d.get('line', 0),
+                            'type': d.get('type', '未知错误'),
+                            'points_deducted': d.get('points_deducted', 0),
+                            'reason': d.get('reason', ''),
+                            'suggestion': d.get('suggestion', '')
+                        }
+                        valid_deductions.append(valid_deduction)
+                    else:
+                        logger.warning(f"⚠️ 跳过一个无效的deduction条目: {d}")
+                score_data['deductions'] = valid_deductions
+                
+                # 验证成绩计算逻辑
+                total_deducted = sum(d.get('points_deducted', 0) for d in score_data.get('deductions', []))
+                calculated_score = 100 - total_deducted
+                
+                logger.info(f"成绩验证: total_deducted={total_deducted}, calculated_score={calculated_score}")
+                
+                # 确保成绩在合理范围内
+                if request.code.strip() and not request.code.strip().startswith('#') and 'pass' not in request.code.strip():
+                    # 如果代码有实质内容，最低给10分
+                    if score_data.get('overall_score', 0) < 10:
+                        original_score = score_data.get('overall_score', 0)
+                        score_data['overall_score'] = 10
+                        logger.warning(f"⚠️ 成绩过低，从{original_score}调整为最低分10分")
+                        print(f"⚠️ 成绩过低，调整为最低分10分")
+                
+                # 确保成绩不超过100分
+                if score_data.get('overall_score', 0) > 100:
+                    original_score = score_data.get('overall_score', 0)
+                    score_data['overall_score'] = 100
+                    logger.warning(f"⚠️ 成绩过高，从{original_score}调整为最高分100分")
+                
+                # 确保成绩不低于0分
+                if score_data.get('overall_score', 0) < 0:
+                    original_score = score_data.get('overall_score', 0)
+                    score_data['overall_score'] = 0
+                    logger.warning(f"⚠️ 成绩为负数，从{original_score}调整为0分")
+                
+                logger.info(f"最终成绩: overall_score={score_data['overall_score']}")
                 
                 # 缓存结果
                 cache.set(cache_key, {
                     "overall_score": score_data["overall_score"],
-                    "summary": review_text,
+                    "summary": score_data["summary"],
                     "deductions": score_data["deductions"]
                 }, ttl=CACHE_TTL)
                 
+                # 先逐字输出评语（流式显示）
+                logger.info("开始流式输出评语...")
+                summary_text = score_data.get("summary", "")
+                for char in summary_text:
+                    yield f"data: {sse_json_dumps({'type': 'review', 'content': char})}\n\n"
+                logger.info(f"评语输出完成，长度: {len(summary_text)}")
+                
+                # 然后输出完整的批改结果（包括扣分明细）
                 result_data = {'type': 'result', 'data': score_data}
                 yield f"data: {sse_json_dumps(result_data)}\n\n"
-            except Exception as e:
+                logger.info("批改完成，结果已发送")
+                
+                # 发送完成信号并立即返回
+                yield "data: [DONE]\n\n"
+                logger.info("已发送[DONE]信号，批改流程正常结束")
+                return
+            except json_lib.JSONDecodeError as e:
+                logger.error(f"❌ JSON解析失败: {e}", exc_info=True)
+                logger.error(f"❌ 原始返回内容: {result_text[:500] if len(result_text) > 500 else result_text}")
                 print(f"❌ JSON解析失败: {e}")
-                error_result = {'type': 'result', 'data': {'overall_score': 0, 'summary': review_text, 'deductions': []}}
+                print(f"❌ 原始返回内容: {result_text[:500] if len(result_text) > 500 else result_text}")
+                import traceback
+                traceback.print_exc()
+                error_result = {'type': 'result', 'data': {'overall_score': 10, 'summary': '批改过程中出现错误，已给予基础分10分。', 'deductions': []}}
                 yield f"data: {sse_json_dumps(error_result)}\n\n"
+                logger.info("已发送错误结果（基础分10分）")
+            except Exception as e:
+                logger.error(f"❌ 批改过程异常: {e}", exc_info=True)
+                logger.error(f"❌ 原始返回内容: {result_text[:500] if len(result_text) > 500 else result_text}")
+                print(f"❌ 批改过程异常: {e}")
+                print(f"❌ 原始返回内容: {result_text[:500] if len(result_text) > 500 else result_text}")
+                import traceback
+                traceback.print_exc()
+                error_result = {'type': 'result', 'data': {'overall_score': 10, 'summary': '批改过程中出现错误，已给予基础分10分。', 'deductions': []}}
+                yield f"data: {sse_json_dumps(error_result)}\n\n"
+                logger.info("已发送错误结果（基础分10分）")
             
             yield "data: [DONE]\n\n"
             
@@ -843,11 +1129,11 @@ async def pull_ollama_model():
 
 @router.post("/sandbox/execute")
 async def execute_sandbox(request: SandboxRequest):
-    import subprocess
-    from app.core.sandbox.secure_executor import SecureExecutor
-    from app.core.sandbox.docker_java_executor import DockerJavaExecutor
-
     try:
+        import subprocess
+        from app.core.sandbox.secure_executor import SecureExecutor
+        from app.core.sandbox.docker_java_executor import DockerJavaExecutor
+
         if request.language == "java":
             if settings.docker_java_enabled:
                 executor = DockerJavaExecutor(
@@ -891,7 +1177,11 @@ async def execute_sandbox(request: SandboxRequest):
         return {"success": False, "error": f"执行超时（{request.timeout}秒）", "output": ""}
     except FileNotFoundError:
         return {"success": False, "error": "未找到对应的运行环境（Python/Java/Docker）", "output": ""}
+    except ImportError as e:
+        return {"success": False, "error": f"导入模块失败: {str(e)}", "output": ""}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"success": False, "error": str(e), "output": ""}
 
 
@@ -1043,3 +1333,48 @@ async def generate_learning_path(request: LearningPathRequest):
     # 缓存结果
     cache.set(cache_key, result, ttl=CACHE_TTL)
     return result
+
+# ================= 题库管理 API =================
+
+# 题库存储文件路径
+# ================= 题库管理 API（数据库版补充） =================
+
+class QuestionUpdateRequest(BaseModel):
+    """题目更新请求体"""
+    title: str = None
+    description: str = None
+    languages: list = None
+    python: dict = None
+    java: dict = None
+    rubrics: str = None
+    difficulty: str = None
+
+@router.put("/questions/update/{question_id}")
+async def update_question_full(question_id: str, request: QuestionUpdateRequest, db: Session = Depends(get_db)):
+    """通过JSON body更新题目"""
+    question = db.query(Question).filter(Question.question_id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    
+    if request.title is not None:
+        question.title = request.title
+    if request.description is not None:
+        question.description = request.description
+    if request.rubrics is not None:
+        question.rubrics = request.rubrics
+    if request.difficulty is not None:
+        question.difficulty = request.difficulty
+    if request.python is not None:
+        question.python_template = request.python.get("template", question.python_template)
+        question.python_description = request.python.get("description", question.python_description)
+        question.python_rubrics = request.python.get("rubrics", question.python_rubrics)
+    if request.java is not None:
+        question.java_template = request.java.get("template", question.java_template)
+        question.java_description = request.java.get("description", question.java_description)
+        question.java_rubrics = request.java.get("rubrics", question.java_rubrics)
+    
+    question.updated_at = datetime.now()
+    db.commit()
+    db.refresh(question)
+    
+    return {"success": True, "message": "题目更新成功"}

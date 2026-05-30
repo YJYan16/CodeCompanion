@@ -84,7 +84,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { Upload } from '@element-plus/icons-vue'
-import { gradeCode } from '@/api/index.js'
+import { submitGrade } from '@/api/index.js'
 import { adminStore } from '@/store/index.js'
 
 const selectedQuestion = ref('q1')
@@ -138,16 +138,21 @@ const submitSingle = async () => {
   try {
     const q = getQuestion()
     if (!q) return alert('请先选择题库中的题目')
-    const response = await gradeCode(singleCode.value, q.description, q.rubrics, batchLanguage.value)
+    const response = await submitGrade(singleCode.value, q.description, q.rubrics, batchLanguage.value)
     singleReport.value = response.data
 
-    adminStore.addReport({
+    // 保存到后端数据库
+    await adminStore.addReport({
       student_name: studentName.value,
       code: singleCode.value,
       language: batchLanguage.value,
       class: adminStore.currentClass,
       source: 'batch',
       question: q.title,
+      question_id: selectedQuestion.value,
+      overall_score: response.data.overall_score || 0,
+      summary: response.data.summary || '',
+      deductions: response.data.deductions || [],
       ...response.data
     })
   } catch (e) {
@@ -182,19 +187,38 @@ const submitBatch = async () => {
       const lang = filename.endsWith('.java') ? 'java' : batchLanguage.value
 
       try {
-        const response = await gradeCode(content, q.description, q.rubrics, lang)
-        const record = {
-          student_name: name,
-          code: content,
-          language: lang,
-          class: adminStore.currentClass,
-          source: 'batch',
-          question: q.title,
-          ...response.data
-        }
-        batchResults.value.push(record)
-        adminStore.addReport(record)
-      } catch (e) {
+    const response = await fetch('/api/grade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: content,
+        question: q.description,
+        rubrics: q.rubrics,
+        language: lang
+      })
+    })
+    const result = await response.json()
+
+    // ★ 调试：打印第一个结果
+    if (i === 0) {
+      console.log('🔍 后端返回的完整结果:', JSON.stringify(result))
+    }
+    
+    const record = {
+      student_name: name,
+      code: content,
+      language: lang,
+      class: adminStore.currentClass,
+      source: 'batch',
+      question: q.title,
+      question_id: selectedQuestion.value,
+      overall_score: result.overall_score || 0,
+      summary: result.summary || '',
+      deductions: result.deductions || [],
+    }
+    batchResults.value.push(record)
+    await adminStore.addReport(record)
+  } catch (e) {
         batchResults.value.push({
           student_name: name,
           overall_score: 0,

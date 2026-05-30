@@ -17,6 +17,7 @@ class SecureExecutor:
             "_write_": full_write_guard,
             "_print_": PrintCollector,
             "_getiter_": iter,
+            "__name__": "__main__",
         }
 
     def execute_python(self, code: str) -> dict:

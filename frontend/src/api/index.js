@@ -56,4 +56,8 @@ export function login(username, password) {
   return api.post('/login', { username, password })
 }
 
+export const executeCode = (code, language, timeout = 5) => {
+  return api.post('/sandbox/execute', { code, language, timeout })
+}
+
 export default api

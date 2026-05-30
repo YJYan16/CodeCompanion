@@ -20,57 +20,76 @@ const emit = defineEmits(['update:modelValue'])
 const editorRef = ref(null)
 let view = null
 
-onMounted(() => {
-  const langExt = props.language === 'java' ? java() : python()
+const getLanguageExtension = (lang) => {
+  if (lang === 'java') return java()
+  return python()
+}
+
+const createEditor = (content) => {
+  if (view) {
+    view.destroy()
+    view = null
+  }
+  
+  const doc = content !== undefined ? content : props.modelValue
+  
   const state = EditorState.create({
-    doc: props.modelValue,
+    doc: doc,
     extensions: [
       basicSetup,
-      langExt,
+      getLanguageExtension(props.language),
       oneDark,
-      EditorView.updateListener.of(u => {
-        if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
+      EditorView.updateListener.of(update => {
+        if (update.docChanged) {
+          emit('update:modelValue', update.state.doc.toString())
+        }
       })
     ]
   })
   view = new EditorView({ state, parent: editorRef.value })
+}
+
+onMounted(() => {
+  createEditor()
 })
 
-// 监听 modelValue 变化，更新编辑器内容
-watch(() => props.modelValue, (newValue) => {
-  if (view && view.state.doc.toString() !== newValue) {
+watch(() => props.language, () => {
+  createEditor(props.modelValue)
+})
+
+watch(() => props.modelValue, (newVal) => {
+  if (view && view.state.doc.toString() !== newVal) {
     view.dispatch({
-      changes: {
-        from: 0,
-        to: view.state.doc.length,
-        insert: newValue
-      }
+      changes: { from: 0, to: view.state.doc.length, insert: newVal }
     })
   }
 })
 
-onBeforeUnmount(() => view?.destroy())
+onBeforeUnmount(() => {
+  view?.destroy()
+})
 </script>
 
 <style scoped>
 .codemirror-container {
-  border: 2px solid #e0e0e0;
-  border-radius: 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
   overflow: hidden;
-  height: 400px;
+  height: 450px;
   width: 100%;
-  transition: all 0.3s ease;
-  box-shadow: 0 0 0 rgba(102, 126, 234, 0);
-}
-.codemirror-container:focus-within {
-  border-color: #667eea;
-  box-shadow: 0 0 20px rgba(102, 126, 234, 0.15);
+  max-width: 100%;
 }
 .codemirror-container :deep(.cm-editor) {
-  height: 100%;
-  width: 100%;
+  height: 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
 }
 .codemirror-container :deep(.cm-scroller) {
-  overflow: auto;
+  overflow: auto !important;
+}
+.codemirror-container :deep(.cm-content) {
+  white-space: pre !important;
+  word-wrap: normal !important;
+  overflow-wrap: normal !important;
 }
 </style>

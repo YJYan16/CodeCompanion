@@ -3,7 +3,7 @@
     <el-card>
       <template #header>
         <span>📝 题库管理</span>
-        <el-button type="primary" size="small" @click="showAddDialog = true" style="float:right">添加题目</el-button>
+        <el-button type="primary" size="small" @click="openAddDialog" style="float:right">添加题目</el-button>
       </template>
 
       <el-table :data="adminStore.questions" stripe>
@@ -23,7 +23,7 @@
           <template #default="{ row }">
             <el-button size="small" @click="editQuestion(row)">编辑</el-button>
             <el-button size="small" type="success" @click="generateTemplate(row)">生成模板</el-button>
-            <el-button size="small" type="danger" @click="adminStore.deleteQuestion(row.id)">删除</el-button>
+            <el-button size="small" type="danger" @click="confirmDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -31,8 +31,11 @@
 
     <el-dialog v-model="showAddDialog" title="添加/编辑题目" width="800px">
       <el-form :model="form" label-width="100px">
-        <el-form-item label="题目ID">
-          <el-input v-model="form.id" placeholder="q1" />
+        <el-form-item v-if="isEditing" label="题目ID">
+          <el-input v-model="form.id" placeholder="自动生成" disabled />
+        </el-form-item>
+        <el-form-item v-if="!isEditing" label="题目ID">
+          <el-input value="自动分配" disabled />
         </el-form-item>
         <el-form-item label="题目名称">
           <el-input v-model="form.title" />
@@ -45,8 +48,8 @@
         </el-form-item>
         <el-form-item label="支持语言">
           <el-checkbox-group v-model="form.languages">
-            <el-checkbox label="python">Python</el-checkbox>
-            <el-checkbox label="java">Java</el-checkbox>
+            <el-checkbox value="python">Python</el-checkbox>
+            <el-checkbox value="java">Java</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
         
@@ -98,6 +101,7 @@ import { adminStore } from '@/store/index.js'
 
 const showAddDialog = ref(false)
 const generating = ref(false)
+const isEditing = ref(false) // ★ 是否为编辑模式
 
 const defaultForm = {
   id: '', title: '', description: '', languages: ['python'],
@@ -110,6 +114,14 @@ const editQuestion = (row) => {
   Object.assign(form, JSON.parse(JSON.stringify(row)))
   if (!form.python) form.python = { description: '', rubrics: '', template: '' }
   if (!form.java) form.java = { description: '', rubrics: '', template: '' }
+  isEditing.value = true
+  showAddDialog.value = true
+}
+
+const openAddDialog = () => {
+  // 重置表单为默认状态
+  Object.assign(form, JSON.parse(JSON.stringify(defaultForm)))
+  isEditing.value = false
   showAddDialog.value = true
 }
 
@@ -261,27 +273,34 @@ public class Main {
 
 // ★ 为已有题目批量生成模板（详细版）
 const generateTemplate = (row) => {
-  const update = JSON.parse(JSON.stringify(row))
+  console.log('generateTemplate called with row:', row)
+  console.log('row.id:', row.id, 'type:', typeof row.id)
+  console.log('Boolean(row.id):', Boolean(row.id))
+  console.log('row.id === "":', row.id === '')
+  console.log('!row.id:', !row.id)
   
-  if (!update.python) update.python = { description: '', rubrics: '', template: '' }
-  if (!update.java) update.java = { description: '', rubrics: '', template: '' }
-  
+  if (!row.id || row.id === '') {
+    alert('题目ID不能为空，请刷新页面重试')
+    console.error('generateTemplate: row.id is undefined or empty', row)
+    return
+  }
+
   const funcName = row.title.replace(/[^\w]/g, '_').toLowerCase()
-  
+
   // 生成 Python 模板（详细版）
-  update.python.template = `# ============================================
+  const pythonTemplate = `# ============================================
 # 题目：${row.title}
 # ============================================
-# 题目描述：${update.python.description || update.description || '请实现题目要求的功能'}
+# 题目描述：${row.python?.description || row.description || '请实现题目要求的功能'}
 # ============================================
 
 def ${funcName}(*args, **kwargs):
     """
     ${row.title}
-    
+
     参数：
         根据题目要求添加参数
-        
+
     返回值：
         根据题目要求返回相应结果
     """
@@ -289,19 +308,19 @@ def ${funcName}(*args, **kwargs):
     result = None
     # ...
     return result`
-  
+
   // 生成 Java 模板（详细版）
-  update.java.template = `// ============================================
+  const javaTemplate = `// ============================================
 // 题目：${row.title}
 // ============================================
-// 题目描述：${update.java.description || update.description || '请实现题目要求的功能'}
+// 题目描述：${row.java?.description || row.description || '请实现题目要求的功能'}
 // ============================================
 
 public class Main {
     public static void main(String[] args) {
         // 测试代码
     }
-    
+
     public static int ${funcName}() {
         // ============ 请在此处编写代码 ============
         int result = 0;
@@ -309,15 +328,23 @@ public class Main {
         return result;
     }
 }`
-  
-  adminStore.addQuestion(update)
+
+  // 直接更新 row 的属性
+  if (!row.python) row.python = {}
+  if (!row.java) row.java = {}
+  row.python.template = pythonTemplate
+  row.java.template = javaTemplate
+
+  // 保存到服务器
+  adminStore.updateQuestion(row)
   alert('📋 代码模板已生成并保存（详细版）')
 }
 
-// ★ 保存并发布题目
+// ★ 保存并发布题目（支持新增和编辑）
 const saveAndPublish = () => {
-  if (!form.id || !form.title) return alert('请填写题目ID和名称')
-  
+  if (!form.title) return alert('请填写题目名称')
+  if (isEditing.value && !form.id) return alert('题目ID不能为空')
+
   // 确保模板存在（使用详细版模板）
   if (form.languages.includes('python') && !form.python.template) {
     const funcName = form.title.replace(/[^\w]/g, '_').toLowerCase()
@@ -330,10 +357,10 @@ const saveAndPublish = () => {
 def ${funcName}(*args, **kwargs):
     """
     ${form.title}
-    
+
     参数：
         根据题目要求添加参数
-        
+
     返回值：
         根据题目要求返回相应结果
     """
@@ -342,7 +369,7 @@ def ${funcName}(*args, **kwargs):
     # ...
     return result`
   }
-  
+
   if (form.languages.includes('java') && !form.java.template) {
     const funcName = form.title.replace(/[^\w]/g, '_').toLowerCase()
     form.java.template = `// ============================================
@@ -355,7 +382,7 @@ public class Main {
     public static void main(String[] args) {
         // 测试代码
     }
-    
+
     public static int ${funcName}() {
         // ============ 请在此处编写代码 ============
         int result = 0;
@@ -364,10 +391,25 @@ public class Main {
     }
 }`
   }
-  
-  adminStore.addQuestion(JSON.parse(JSON.stringify(form)))
+
+  const questionData = JSON.parse(JSON.stringify(form))
+  if (isEditing.value) {
+    adminStore.updateQuestion(questionData)
+    alert('✅ 题目已更新')
+  } else {
+    adminStore.addQuestion(questionData)
+    alert('✅ 题目已发布，学生端可以看到并使用')
+  }
   showAddDialog.value = false
+  isEditing.value = false
   Object.assign(form, JSON.parse(JSON.stringify(defaultForm)))
-  alert('✅ 题目已发布，学生端可以看到并使用')
+}
+
+// ★ 确认删除题目
+const confirmDelete = (row) => {
+  if (confirm(`确定要删除题目【${row.title}】吗？此操作不可恢复！`)) {
+    adminStore.deleteQuestion(row.id)
+    alert('✅ 题目已删除')
+  }
 }
 </script>

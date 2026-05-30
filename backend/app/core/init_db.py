@@ -1,13 +1,105 @@
 # backend/app/core/init_db.py
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.core.database import engine, Base
 from app.core.auth import hash_password
 from app.models.database_models import User, Class, Question, Grade
 from datetime import datetime
 
-# 初始化数据库表
 def init_db():
     Base.metadata.create_all(bind=engine)
+
+def migrate_schema():
+    """迁移数据库schema，添加缺失的列"""
+    with engine.connect() as conn:
+        # 检查grades表是否有user_name列
+        try:
+            result = conn.execute(text("SELECT user_name FROM grades LIMIT 1"))
+        except Exception:
+            print("添加 user_name 列到 grades 表...")
+            try:
+                conn.execute(text("ALTER TABLE grades ADD COLUMN user_name VARCHAR"))
+                conn.commit()
+                print("✓ user_name 列已添加")
+            except Exception as e:
+                print(f"user_name 列添加失败或已存在: {e}")
+
+        # 检查grades表是否有class_id列
+        try:
+            result = conn.execute(text("SELECT class_id FROM grades LIMIT 1"))
+        except Exception:
+            print("添加 class_id 列到 grades 表...")
+            try:
+                conn.execute(text("ALTER TABLE grades ADD COLUMN class_id INTEGER REFERENCES classes(id)"))
+                conn.commit()
+                print("✓ class_id 列已添加")
+            except Exception as e:
+                print(f"class_id 列添加失败或已存在: {e}")
+
+        # 检查grades表是否有deductions列
+        try:
+            result = conn.execute(text("SELECT deductions FROM grades LIMIT 1"))
+        except Exception:
+            print("添加 deductions 列到 grades 表...")
+            try:
+                conn.execute(text("ALTER TABLE grades ADD COLUMN deductions TEXT"))
+                conn.commit()
+                print("✓ deductions 列已添加")
+            except Exception as e:
+                print(f"deductions 列添加失败或已存在: {e}")
+
+        # 检查questions表是否有python_template和java_template列
+        try:
+            result = conn.execute(text("SELECT python_template FROM questions LIMIT 1"))
+        except Exception:
+            print("添加 python_template 和 java_template 列到 questions 表...")
+            try:
+                conn.execute(text("ALTER TABLE questions ADD COLUMN python_template TEXT"))
+                conn.execute(text("ALTER TABLE questions ADD COLUMN java_template TEXT"))
+                conn.commit()
+                print("✓ python_template 和 java_template 列已添加")
+            except Exception as e:
+                print(f"python_template/java_template 列添加失败或已存在: {e}")
+
+        # 检查questions表是否有rubrics和difficulty列
+        try:
+            result = conn.execute(text("SELECT rubrics FROM questions LIMIT 1"))
+        except Exception:
+            print("添加 rubrics 和 difficulty 列到 questions 表...")
+            try:
+                conn.execute(text("ALTER TABLE questions ADD COLUMN rubrics TEXT"))
+                conn.execute(text("ALTER TABLE questions ADD COLUMN difficulty VARCHAR"))
+                conn.commit()
+                print("✓ rubrics 和 difficulty 列已添加")
+            except Exception as e:
+                print(f"rubrics/difficulty 列添加失败或已存在: {e}")
+
+        # 检查questions表是否有updated_at列
+        try:
+            result = conn.execute(text("SELECT updated_at FROM questions LIMIT 1"))
+        except Exception:
+            print("添加 updated_at 列到 questions 表...")
+            try:
+                conn.execute(text("ALTER TABLE questions ADD COLUMN updated_at TIMESTAMP"))
+                conn.commit()
+                print("✓ updated_at 列已添加")
+            except Exception as e:
+                print(f"updated_at 列添加失败或已存在: {e}")
+
+        # 检查questions表是否有python_description, python_rubrics, java_description, java_rubrics列
+        try:
+            result = conn.execute(text("SELECT python_description FROM questions LIMIT 1"))
+        except Exception:
+            print("添加 python_description, python_rubrics, java_description, java_rubrics 列到 questions 表...")
+            try:
+                conn.execute(text("ALTER TABLE questions ADD COLUMN python_description TEXT"))
+                conn.execute(text("ALTER TABLE questions ADD COLUMN python_rubrics TEXT"))
+                conn.execute(text("ALTER TABLE questions ADD COLUMN java_description TEXT"))
+                conn.execute(text("ALTER TABLE questions ADD COLUMN java_rubrics TEXT"))
+                conn.commit()
+                print("✓ python_description, python_rubrics, java_description, java_rubrics 列已添加")
+            except Exception as e:
+                print(f"python_description/python_rubrics/java_description/java_rubrics 列添加失败或已存在: {e}")
 
 # 添加初始数据
 def add_initial_data(db: Session):

@@ -3,24 +3,28 @@ import { reactive } from 'vue'
 // 从后端API获取题目数据
 const fetchQuestions = async () => {
   try {
-    const response = await fetch('http://localhost:8001/api/questions')
+    const response = await fetch('/api/questions')
     const result = await response.json()
     if (result.questions) {
       const questionMap = {}
       result.questions.forEach(q => {
         questionMap[q.id] = {
-          ...q,
+          id: q.id,
+          title: q.title,
+          description: q.description || '',
           languages: ['python', 'java'],
           python: {
-            description: q.description,
-            rubrics: q.rubrics,
-            template: q.python
+            description: q.python?.description || q.description || '',
+            rubrics: q.python?.rubrics || q.rubrics || '',
+            template: q.python?.template || ''
           },
           java: {
-            description: q.description,
-            rubrics: q.rubrics,
-            template: q.java
-          }
+            description: q.java?.description || q.description || '',
+            rubrics: q.java?.rubrics || q.rubrics || '',
+            template: q.java?.template || ''
+          },
+          rubrics: q.rubrics || '',
+          difficulty: q.difficulty || ''
         }
       })
       return questionMap
@@ -497,7 +501,40 @@ export const adminStore = reactive({
     this.loadQuestions()
   },
 
-  loadStudentReports() {
+  async loadStudentReports() {
+    // 先从后端API获取成绩数据
+    try {
+      const response = await fetch('/api/grades')
+      const result = await response.json()
+      if (result.grades) {
+        result.grades.forEach(g => {
+          const className = g.class_name || '默认班级'
+          if (!this.allReports[className]) this.allReports[className] = []
+          const existing = this.allReports[className].find(r => r.id === g.id)
+          if (!existing) {
+            this.allReports[className].push({
+              id: g.id,
+              userId: g.user_id,
+              student_name: g.user_name,
+              question: g.question_title,
+              question_id: g.question_id,
+              language: g.language,
+              code: g.code,
+              overall_score: g.overall_score,
+              summary: g.summary,
+              deductions: g.deductions || [],
+              class: className,
+              submitted_at: g.submitted_at,
+              source: 'student'
+            })
+          }
+        })
+      }
+    } catch (error) {
+      console.error('从API加载学生成绩失败:', error)
+    }
+
+    // 再从localStorage读取补充数据（用于离线模式）
     const savedReports = localStorage.getItem('admin_reports')
     if (savedReports) {
       const reports = JSON.parse(savedReports)
@@ -575,7 +612,6 @@ export const adminStore = reactive({
   },
 
   addQuestion(question) {
-    // 确保题目有完整的结构
     const defaultPython = { description: '', rubrics: '', template: '', practices: [] }
     const defaultJava = { description: '', rubrics: '', template: '', practices: [] }
     
@@ -589,11 +625,61 @@ export const adminStore = reactive({
     if (idx >= 0) this.questions[idx] = question
     else this.questions.push(question)
     this.saveQuestions()
+    this.syncQuestionToAPI(question, 'POST')
+  },
+
+  async syncQuestionToAPI(question, method) {
+    try {
+        const baseUrl = '/api/questions'
+        let response
+        
+        if (method === 'PUT') {
+            response = await fetch(`${baseUrl}/update/${question.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(question)
+            })
+        } else if (method === 'DELETE') {
+            response = await fetch(`${baseUrl}/${question.id}`, { method: 'DELETE' })
+        } else {
+            response = await fetch(baseUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(question)
+            })
+        }
+        
+        if (!response.ok) throw new Error('保存失败')
+        console.log('题目已同步到后端:', question.title)
+        this.saveQuestions()
+    } catch (e) {
+        console.error('同步题目到后端失败:', e)
+    }
   },
 
   deleteQuestion(id) {
     this.questions = this.questions.filter(q => q.id !== id)
     this.saveQuestions()
+    this.syncQuestionToAPI({ id }, 'DELETE')
+  },
+
+  async syncQuestionDeleteToAPI(questionId) {
+    try {
+      await fetch(`/api/questions/${questionId}`, {
+        method: 'DELETE'
+      })
+    } catch (error) {
+      console.error('从API删除题目失败:', error)
+    }
+  },
+
+  updateQuestion(question) {
+    const idx = this.questions.findIndex(q => q.id === question.id)
+    if (idx >= 0) {
+      this.questions[idx] = { ...this.questions[idx], ...question }
+      this.saveQuestions()
+      this.syncQuestionToAPI(question, 'PUT')
+    }
   },
 
   get reports() {

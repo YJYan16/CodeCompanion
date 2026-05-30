@@ -43,17 +43,17 @@
 import { ref, watch, nextTick } from 'vue'
 import { askTutor } from '@/api/index.js'
 import VoiceInput from '@/components/VoiceInput.vue'
+import { ElMessage } from 'element-plus'
 
 const onVoiceResult = (text) => {
   inputText.value = text
-  // 自动发送
   nextTick(() => sendMessage())
 }
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   reportJson: { type: String, default: '{}' },
-  studentCode: { type: String, default: '' }  // 新增
+  studentCode: { type: String, default: '' }
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -67,7 +67,6 @@ const chatMessagesRef = ref(null)
 watch(() => props.modelValue, (val) => {
   visible.value = val
   if (val) {
-    // 不再清空 messages，保留历史对话
     inputText.value = ''
   }
 })
@@ -80,8 +79,43 @@ const handleClose = () => {
   visible.value = false
 }
 
+const escapeHtml = (str) => {
+  if (!str) return ''
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+const copyCode = (code, event) => {
+  navigator.clipboard.writeText(code).then(() => {
+    ElMessage.success('代码已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.error('复制失败')
+  })
+}
+
 const formatContent = (text) => {
-  return text.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>').replace(/\n/g, '<br>')
+  if (!text) return ''
+  let result = text
+  
+  // 处理代码块，添加特殊背景框和复制按钮
+  result = result.replace(/```(\w*)\s*\n([\s\S]*?)```/g, (match, lang, code) => {
+    const escapedCode = escapeHtml(code.trim())
+    const copyBtn = `<button class="code-copy-btn" onclick="copyCode(this)" data-code="${escapeHtml(code.trim())}">📋 复制</button>`
+    return `<div class="code-block-wrapper">${copyBtn}<div class="code-block" style="background:#1e1e1e;color:#d4d4d4;padding:15px;border-radius:6px;overflow-x:auto;font-family:Consolas,Monaco,'Courier New',monospace;font-size:14px;line-height:1.6;margin:10px 0;white-space:pre-wrap;position:relative;">${escapedCode}</div></div>`
+  })
+  
+  return result
+}
+
+// 全局复制函数，供 onclick 调用
+if (typeof window !== 'undefined') {
+  window.copyCode = (btn) => {
+    const code = btn.getAttribute('data-code')
+    navigator.clipboard.writeText(code).then(() => {
+      ElMessage.success('代码已复制到剪贴板')
+    }).catch(() => {
+      ElMessage.error('复制失败')
+    })
+  }
 }
 
 import { fetchEventSource } from '@microsoft/fetch-event-source'
@@ -164,5 +198,38 @@ const sendMessage = async () => {
 }
 .chat-input {
   margin-top: 10px;
+}
+
+.code-block-wrapper {
+  position: relative;
+  margin: 10px 0;
+}
+
+.code-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.3s ease;
+}
+
+.code-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.code-block {
+  position: relative;
+}
+
+.code-block-wrapper:hover .code-copy-btn {
+  opacity: 1;
 }
 </style>
